@@ -1,12 +1,13 @@
 # openbox
 
-公开脚本集合，用于快速配置服务器反代、管理 Codex CLI 中转配置。
+公开脚本集合，用于快速配置服务器反代、管理 Codex CLI / Claude Code 中转配置。
 
 ## 脚本
 
 - `caddy_manager.sh`: Caddy 交互式管理脚本，支持一键反代、配置预览、语法校验、失败回滚。
 - `codex-switch.sh`: Codex / OpenAI-compatible 中转配置管理器，支持多配置切换、测试、启动 Codex CLI。
-- `install.sh`: 通用安装器，可安装 `codex-switch`、`caddy-manager` 或全部脚本。
+- `claude-switch.sh`: Claude Code / AgentRouter 配置管理器，支持官方模式和第三方网关切换。
+- `install.sh`: 通用安装器，可安装 `codex-switch`、`claude-switch`、`caddy-manager` 或全部脚本。
 - `install-codex-switch.sh`: 兼容旧命令的安装入口，内部调用 `install.sh codex-switch`。
 
 ## 通用一键安装
@@ -59,6 +60,59 @@ sw --launch
 
 ```bash
 sw --install-codex
+```
+
+`sw --install-codex` 默认切回官方 Codex CLI。需要第三方中转时再添加配置：
+
+```bash
+sw --add router https://api.example.com/v1 sk-xxx gpt-5.4
+sw --activate router
+```
+
+切回官方：
+
+```bash
+sw --official
+```
+
+## 一键安装并启动 Claude Switch
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/liut-coder/openbox/main/install.sh) claude-switch && cw
+```
+
+安装完成后可直接使用：
+
+```bash
+cw
+claude-switch
+```
+
+一键安装或升级 Claude Code：
+
+```bash
+cw --install-claude
+```
+
+`cw --install-claude` 默认使用官方 Claude Code，不写第三方环境变量。需要 AgentRouter 或其他 Anthropic-compatible 网关时再添加配置：
+
+```bash
+cw --add router https://xxx.xx sk-xxx
+cw --activate router
+```
+
+第三方配置会写入：
+
+```bash
+ANTHROPIC_BASE_URL
+ANTHROPIC_AUTH_TOKEN
+ANTHROPIC_API_KEY
+```
+
+切回官方：
+
+```bash
+cw --official
 ```
 
 ## 一键安装 Caddy 管理脚本
@@ -144,15 +198,32 @@ sw --show
 sw --add work https://api.example.com/v1 sk-xxx gpt-5.4
 sw --activate work
 sw --switch work
+sw --official
 sw --test
 sw --delete work
 ```
 
 完整文档见 [docs/codex-switch.md](docs/codex-switch.md)。
 
+## Claude Switch 常用命令
+
+```bash
+cw --list
+cw --show
+cw --add router https://xxx.xx sk-xxx
+cw --activate router
+cw --switch router
+cw --official
+cw --test
+cw --delete router
+```
+
+完整文档见 [docs/claude-switch.md](docs/claude-switch.md)。
+
 ## 注意
 
 - `caddy_manager.sh` 建议使用 `root` 运行。
 - `codex-switch.sh` 依赖 `bash`、`curl`、`jq`；安装器会尝试自动安装缺失依赖。
+- `claude-switch.sh` 依赖 `bash`、`curl`、`jq`；安装器会尝试自动安装缺失依赖。
 - `caddy_manager.sh` 会按需安装 Caddy，并写入 `/etc/caddy/Caddyfile`。
 - 不要提交私钥、API Key、OAuth Token、生产配置文件。

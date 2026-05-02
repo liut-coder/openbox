@@ -113,6 +113,23 @@ install_codex_switch() {
     log "启动: sw"
 }
 
+install_claude_switch() {
+    local source_script
+
+    ensure_commands curl jq
+    source_script="$(resolve_source "claude-switch.sh")"
+
+    log "安装 Claude Switch..."
+    install_file "$source_script" "$TARGET_DIR/claude-switch"
+    install_file "$source_script" "$TARGET_DIR/cw"
+
+    log "安装完成:"
+    log "  $TARGET_DIR/claude-switch"
+    log "  $TARGET_DIR/cw"
+    log ""
+    log "启动: cw"
+}
+
 install_caddy_manager() {
     local source_script
 
@@ -133,6 +150,8 @@ install_caddy_manager() {
 install_all() {
     install_codex_switch
     echo ""
+    install_claude_switch
+    echo ""
     install_caddy_manager
 }
 
@@ -142,12 +161,17 @@ uninstall_target() {
             run_privileged rm -f "$TARGET_DIR/codex-switch" "$TARGET_DIR/sw"
             log "已卸载 codex-switch"
             ;;
+        claude-switch)
+            run_privileged rm -f "$TARGET_DIR/claude-switch" "$TARGET_DIR/cw"
+            log "已卸载 claude-switch"
+            ;;
         caddy-manager)
             run_privileged rm -f "$TARGET_DIR/caddy-manager" "$TARGET_DIR/cm"
             log "已卸载 caddy-manager"
             ;;
         all)
             uninstall_target codex-switch
+            uninstall_target claude-switch
             uninstall_target caddy-manager
             ;;
         *)
@@ -160,6 +184,7 @@ show_list() {
     cat <<EOF
 可安装目标:
   codex-switch   安装 codex-switch / sw
+  claude-switch   安装 claude-switch / cw
   caddy-manager  安装 caddy-manager / cm
   all            安装全部脚本
 EOF
@@ -176,6 +201,7 @@ openbox 通用安装器
 
 目标:
   codex-switch
+  claude-switch
   caddy-manager
   all
 
@@ -185,6 +211,7 @@ openbox 通用安装器
 
 示例:
   bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) codex-switch
+  bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) claude-switch
   bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) caddy-manager
   bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) all
 EOF
@@ -196,6 +223,9 @@ main() {
     case "${1:-}" in
         codex-switch|codex|sw)
             install_codex_switch
+            ;;
+        claude-switch|claude|cw)
+            install_claude_switch
             ;;
         caddy-manager|caddy|cm)
             install_caddy_manager
