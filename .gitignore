@@ -1,0 +1,10 @@
+.DS_Store
+*.log
+*.key
+*.pem
+*.pub
+*.env
+auths/
+logs/
+management-key.txt
+config.yaml
