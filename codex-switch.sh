@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-VERSION="3.0.0"
+VERSION="4.0.0"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -12,7 +12,6 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 APP_NAME="codex-switch"
-DEFAULT_PROVIDER="openai-compatible"
 CONFIG_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/codex-switch"
 PROFILES_FILE="$CONFIG_ROOT/profiles.json"
 STATE_FILE="$CONFIG_ROOT/state.json"
@@ -60,92 +59,41 @@ require_cmd() {
     has_cmd "$cmd" || die "$hint"
 }
 
+run_privileged() {
+    if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
+        "$@"
+    else
+        has_cmd sudo || die "当前不是 root，且未找到 sudo"
+        sudo "$@"
+    fi
+}
+
 init_store() {
+    local tmp_file
+
     mkdir -p "$CONFIG_ROOT"
     [[ -f "$PROFILES_FILE" ]] || printf '{}\n' > "$PROFILES_FILE"
     [[ -f "$STATE_FILE" ]] || printf '{"current_profile":""}\n' > "$STATE_FILE"
+
+    tmp_file="$(mktemp "${PROFILES_FILE}.XXXXXX")"
+    # Keep old profile files usable, but only retain Codex-relevant fields.
     jq '
         with_entries(
-            .value |= (
-                if type == "object" then
-                    .provider = (.provider // "openai-compatible")
-                else
-                    .
-                end
-            )
+            .value = {
+                name: .key,
+                base_url: (.value.base_url // ""),
+                api_key: (.value.api_key // ""),
+                model: (.value.model // "gpt-5.4")
+            }
         )
-    ' "$PROFILES_FILE" > "${PROFILES_FILE}.tmp"
-    mv "${PROFILES_FILE}.tmp" "$PROFILES_FILE"
+    ' "$PROFILES_FILE" > "$tmp_file"
+    mv "$tmp_file" "$PROFILES_FILE"
 }
 
 normalize_base_url() {
     local value="$1"
     value="${value%/}"
     printf "%s\n" "$value"
-}
-
-normalize_provider() {
-    local provider="${1:-$DEFAULT_PROVIDER}"
-    case "$provider" in
-        openai|openai-compatible|openai_compatible)
-            printf "openai-compatible\n"
-            ;;
-        gemini|google|google-gemini)
-            printf "gemini\n"
-            ;;
-        ollama|local-ollama)
-            printf "ollama\n"
-            ;;
-        openrouter)
-            printf "openrouter\n"
-            ;;
-        anthropic)
-            printf "anthropic\n"
-            ;;
-        *)
-            printf "%s\n" "$provider"
-            ;;
-    esac
-}
-
-default_model_for_provider() {
-    case "$(normalize_provider "${1:-$DEFAULT_PROVIDER}")" in
-        gemini) printf "gemini-2.5-pro\n" ;;
-        ollama) printf "qwen2.5-coder:latest\n" ;;
-        anthropic) printf "claude-sonnet-4-20250514\n" ;;
-        *) printf "gpt-5.4\n" ;;
-    esac
-}
-
-default_base_url_for_provider() {
-    case "$(normalize_provider "${1:-$DEFAULT_PROVIDER}")" in
-        ollama) printf "http://127.0.0.1:11434/v1\n" ;;
-        *) printf "\n" ;;
-    esac
-}
-
-provider_supports_codex_sync() {
-    case "$(normalize_provider "${1:-$DEFAULT_PROVIDER}")" in
-        anthropic) return 1 ;;
-        *) return 0 ;;
-    esac
-}
-
-provider_note() {
-    case "$(normalize_provider "${1:-$DEFAULT_PROVIDER}")" in
-        gemini)
-            printf "Gemini 需要可被 Codex 使用的兼容入口；建议填写 Gemini 的 OpenAI-compatible 网关地址。\n"
-            ;;
-        ollama)
-            printf "Ollama 建议使用 http://127.0.0.1:11434/v1，并确保本地模型已拉取。\n"
-            ;;
-        anthropic)
-            printf "Anthropic 原生接口不能直接按 OpenAI provider 写入 Codex；该配置可保存，但不会自动同步到 Codex CLI。\n"
-            ;;
-        *)
-            printf "\n"
-            ;;
-    esac
 }
 
 profile_exists() {
@@ -164,33 +112,23 @@ get_current_profile_name() {
 
 set_current_profile_name() {
     local name="$1"
-    jq --arg name "$name" '.current_profile = $name' "$STATE_FILE" > "${STATE_FILE}.tmp"
-    mv "${STATE_FILE}.tmp" "$STATE_FILE"
+    local tmp_file
+
+    tmp_file="$(mktemp "${STATE_FILE}.XXXXXX")"
+    jq --arg name "$name" '.current_profile = $name' "$STATE_FILE" > "$tmp_file"
+    mv "$tmp_file" "$STATE_FILE"
 }
 
 write_env_file() {
-    local provider="$1"
-    local base_url="$2"
-    local api_key="$3"
-    local model="$4"
+    local base_url="$1"
+    local api_key="$2"
+    local model="$3"
 
     cat > "$ENV_FILE" <<EOF
 export OPENAI_BASE_URL='$base_url'
 export OPENAI_API_KEY='$api_key'
 export OPENAI_MODEL='$model'
 EOF
-
-    case "$(normalize_provider "$provider")" in
-        gemini)
-            cat >> "$ENV_FILE" <<EOF
-export GEMINI_API_KEY='$api_key'
-export GOOGLE_API_KEY='$api_key'
-EOF
-            ;;
-        *)
-            :
-            ;;
-    esac
 }
 
 update_shell_rc() {
@@ -211,26 +149,25 @@ EOF
 )"
 
     if grep -Fq "$begin" "$rc_file"; then
+        local tmp_file
+        tmp_file="$(mktemp "${rc_file}.XXXXXX")"
         awk -v begin="$begin" -v end="$end" -v block="$block" '
             $0 == begin { print block; skip=1; next }
             $0 == end { skip=0; next }
             !skip { print }
-        ' "$rc_file" > "${rc_file}.tmp"
-        mv "${rc_file}.tmp" "$rc_file"
+        ' "$rc_file" > "$tmp_file"
+        mv "$tmp_file" "$rc_file"
     else
-        {
-            printf "\n%s\n" "$block"
-        } >> "$rc_file"
+        printf "\n%s\n" "$block" >> "$rc_file"
     fi
 }
 
 sync_shell_environment() {
-    local provider="$1"
-    local base_url="$2"
-    local api_key="$3"
-    local model="$4"
+    local base_url="$1"
+    local api_key="$2"
+    local model="$3"
 
-    write_env_file "$provider" "$base_url" "$api_key" "$model"
+    write_env_file "$base_url" "$api_key" "$model"
     update_shell_rc "$HOME/.bashrc"
     if [[ -f "$HOME/.zshrc" ]]; then
         update_shell_rc "$HOME/.zshrc"
@@ -276,9 +213,7 @@ write_codex_toml() {
             skip_key=1
             next
         }
-        /^\[/ {
-            in_section=0
-        }
+        /^\[/ { in_section=0 }
         in_section && skip_name && /^name[[:space:]]*=/ { next }
         in_section && skip_base && /^base_url[[:space:]]*=/ { next }
         in_section && skip_key && /^api_key[[:space:]]*=/ { next }
@@ -303,19 +238,11 @@ write_codex_toml() {
 }
 
 sync_codex_cli() {
-    local provider="$1"
-    local base_url="$2"
-    local api_key="$3"
-    local model="$4"
-
-    provider="$(normalize_provider "$provider")"
+    local base_url="$1"
+    local api_key="$2"
+    local model="$3"
 
     mkdir -p "$CODEX_CONFIG_DIR"
-
-    if ! provider_supports_codex_sync "$provider"; then
-        warn "Provider '$provider' 暂不支持直接同步到 Codex CLI，已跳过 Codex 配置写入"
-        return 0
-    fi
 
     if has_cmd codex && codex help config >/dev/null 2>&1; then
         codex config set base_url "$base_url" >/dev/null
@@ -344,31 +271,32 @@ save_profile() {
     local base_url="$2"
     local api_key="$3"
     local model="$4"
-    local provider="${5:-$DEFAULT_PROVIDER}"
+    local tmp_file
 
     base_url="$(normalize_base_url "$base_url")"
-    provider="$(normalize_provider "$provider")"
+    tmp_file="$(mktemp "${PROFILES_FILE}.XXXXXX")"
 
     jq \
         --arg name "$name" \
-        --arg provider "$provider" \
         --arg base_url "$base_url" \
         --arg api_key "$api_key" \
         --arg model "$model" \
-        '.[$name] = {name:$name, provider:$provider, base_url:$base_url, api_key:$api_key, model:$model}' \
-        "$PROFILES_FILE" > "${PROFILES_FILE}.tmp"
-    mv "${PROFILES_FILE}.tmp" "$PROFILES_FILE"
+        '.[$name] = {name:$name, base_url:$base_url, api_key:$api_key, model:$model}' \
+        "$PROFILES_FILE" > "$tmp_file"
+    mv "$tmp_file" "$PROFILES_FILE"
 
     success "配置 '$name' 已保存"
 }
 
 delete_profile() {
     local name="$1"
+    local tmp_file
 
     profile_exists "$name" || die "配置 '$name' 不存在"
 
-    jq --arg name "$name" 'del(.[$name])' "$PROFILES_FILE" > "${PROFILES_FILE}.tmp"
-    mv "${PROFILES_FILE}.tmp" "$PROFILES_FILE"
+    tmp_file="$(mktemp "${PROFILES_FILE}.XXXXXX")"
+    jq --arg name "$name" 'del(.[$name])' "$PROFILES_FILE" > "$tmp_file"
+    mv "$tmp_file" "$PROFILES_FILE"
 
     if [[ "$(get_current_profile_name)" == "$name" ]]; then
         set_current_profile_name ""
@@ -382,16 +310,16 @@ list_profiles() {
     current="$(get_current_profile_name)"
 
     if [[ "$(jq 'length' "$PROFILES_FILE")" -eq 0 ]]; then
-        warn "还没有保存任何配置"
+        warn "还没有保存任何 Codex 配置"
         return
     fi
 
-    jq -r 'to_entries[] | [.key, (.value.provider // "openai-compatible"), .value.base_url, .value.model] | @tsv' "$PROFILES_FILE" |
-    while IFS=$'\t' read -r name provider base_url model; do
+    jq -r 'to_entries[] | [.key, .value.base_url, .value.model] | @tsv' "$PROFILES_FILE" |
+    while IFS=$'\t' read -r name base_url model; do
         if [[ "$name" == "$current" ]]; then
-            printf "* %s\t%s\t%s\t%s\n" "$name" "$provider" "$model" "$base_url"
+            printf "* %s\t%s\t%s\n" "$name" "$model" "$base_url"
         else
-            printf "  %s\t%s\t%s\t%s\n" "$name" "$provider" "$model" "$base_url"
+            printf "  %s\t%s\t%s\n" "$name" "$model" "$base_url"
         fi
     done
 }
@@ -412,7 +340,6 @@ show_profile_detail() {
     profile="$(get_profile_json "$name")"
 
     printf "名称: %s\n" "$name"
-    printf "Provider: %s\n" "$(jq -r '.provider // "openai-compatible"' <<<"$profile")"
     printf "Base URL: %s\n" "$(jq -r '.base_url' <<<"$profile")"
     printf "Model: %s\n" "$(jq -r '.model' <<<"$profile")"
     printf "API Key: %s\n" "$(mask_api_key "$(jq -r '.api_key' <<<"$profile")")"
@@ -421,14 +348,12 @@ show_profile_detail() {
 test_profile() {
     local name="$1"
     local profile
-    local provider
     local base_url
     local api_key
     local endpoint
     local http_code
 
     profile="$(get_profile_json "$name")"
-    provider="$(jq -r '.provider // "openai-compatible"' <<<"$profile")"
     base_url="$(jq -r '.base_url' <<<"$profile")"
     api_key="$(jq -r '.api_key' <<<"$profile")"
     endpoint="$(normalize_base_url "$base_url")/models"
@@ -472,23 +397,21 @@ activate_profile() {
     local name="$1"
     local launch_after="${2:-false}"
     local profile
-    local provider
     local base_url
     local api_key
     local model
 
     profile_exists "$name" || die "配置 '$name' 不存在"
     profile="$(get_profile_json "$name")"
-    provider="$(jq -r '.provider // "openai-compatible"' <<<"$profile")"
     base_url="$(jq -r '.base_url' <<<"$profile")"
     api_key="$(jq -r '.api_key' <<<"$profile")"
     model="$(jq -r '.model' <<<"$profile")"
 
-    sync_shell_environment "$provider" "$base_url" "$api_key" "$model"
-    sync_codex_cli "$provider" "$base_url" "$api_key" "$model"
+    sync_shell_environment "$base_url" "$api_key" "$model"
+    sync_codex_cli "$base_url" "$api_key" "$model"
     set_current_profile_name "$name"
 
-    success "当前配置已切换为 '$name'"
+    success "当前 Codex 配置已切换为 '$name'"
     warn "新终端会自动生效；当前终端可执行: source '$ENV_FILE'"
 
     if [[ "$launch_after" == "true" ]]; then
@@ -498,26 +421,10 @@ activate_profile() {
 
 launch_codex() {
     if ! has_cmd codex; then
-        die "未检测到 codex 命令，无法启动。请先安装官方 Codex CLI。"
+        die "未检测到 codex 命令，无法启动。请先执行: sw --install-codex"
     fi
 
     exec codex
-}
-
-launch_gemini() {
-    if ! has_cmd gemini; then
-        die "未检测到 gemini 命令，无法启动。请先执行 --install-gemini。"
-    fi
-
-    exec gemini
-}
-
-run_privileged() {
-    if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
-        "$@"
-    else
-        sudo "$@"
-    fi
 }
 
 install_node_runtime() {
@@ -556,55 +463,6 @@ install_node_runtime() {
     die "无法自动安装 npm。请先手动安装 Node.js 和 npm。"
 }
 
-write_gemini_wrapper() {
-    local target="/usr/local/bin/gemini"
-    local bin_path="$1"
-    local wrapper_source
-
-    wrapper_source="$(mktemp)"
-    cat > "$wrapper_source" <<EOF
-#!/usr/bin/env bash
-exec node "$bin_path" "\$@"
-EOF
-
-    run_privileged install -m 755 "$wrapper_source" "$target"
-    rm -f "$wrapper_source"
-}
-
-ensure_gemini_command() {
-    local prefix
-    local package_dir=""
-    local package_json=""
-    local bin_rel=""
-    local bin_path=""
-
-    has_cmd gemini && return 0
-
-    prefix="$(npm prefix -g 2>/dev/null || npm config get prefix 2>/dev/null || true)"
-    for package_dir in \
-        "$prefix/lib/node_modules/@google/gemini-cli" \
-        "$prefix/lib/node_modules/@google-dev/gemini-cli" \
-        "/usr/lib/node_modules/@google/gemini-cli" \
-        "/usr/local/lib/node_modules/@google/gemini-cli"
-    do
-        package_json="$package_dir/package.json"
-        if [[ -f "$package_json" ]]; then
-            bin_rel="$(jq -r '.bin.gemini // empty' "$package_json" 2>/dev/null || true)"
-            if [[ -z "$bin_rel" ]]; then
-                bin_rel="$(jq -r 'if (.bin|type)=="string" then .bin else empty end' "$package_json" 2>/dev/null || true)"
-            fi
-            if [[ -n "$bin_rel" && -f "$package_dir/$bin_rel" ]]; then
-                bin_path="$package_dir/$bin_rel"
-                write_gemini_wrapper "$bin_path"
-                hash -r
-                has_cmd gemini && return 0
-            fi
-        fi
-    done
-
-    return 1
-}
-
 install_codex_cli() {
     local current_profile=""
 
@@ -625,52 +483,9 @@ install_codex_cli() {
 
     current_profile="$(get_current_profile_name)"
     if [[ -n "$current_profile" ]] && profile_exists "$current_profile"; then
-        sync_codex_cli \
-            "$(jq -r --arg name "$current_profile" '.[$name].provider // "openai-compatible"' "$PROFILES_FILE")" \
-            "$(jq -r --arg name "$current_profile" '.[$name].base_url' "$PROFILES_FILE")" \
-            "$(jq -r --arg name "$current_profile" '.[$name].api_key' "$PROFILES_FILE")" \
-            "$(jq -r --arg name "$current_profile" '.[$name].model' "$PROFILES_FILE")"
-        success "已同步当前配置 '$current_profile' 到 Codex CLI"
+        activate_profile "$current_profile" false
     else
-        warn "当前没有激活配置。你可以先运行 'sw' 配置中转站，或直接执行 'codex --login' 登录。"
-    fi
-}
-
-install_gemini_cli() {
-    local current_profile=""
-    local current_provider=""
-
-    install_node_runtime
-    require_cmd npm "npm 安装失败，请先检查 Node.js 环境。"
-
-    info "安装或升级 Gemini CLI"
-    if npm install -g @google/gemini-cli; then
-        :
-    else
-        warn "当前用户全局安装失败，尝试使用 sudo"
-        run_privileged npm install -g @google/gemini-cli
-    fi
-
-    hash -r
-    ensure_gemini_command || true
-    require_cmd gemini "Gemini CLI 安装后仍不可用，请检查 npm 全局 bin 目录是否在 PATH 中。"
-    success "Gemini CLI 已安装"
-
-    current_profile="$(get_current_profile_name)"
-    if [[ -n "$current_profile" ]] && profile_exists "$current_profile"; then
-        current_provider="$(jq -r --arg name "$current_profile" '.[$name].provider // "openai-compatible"' "$PROFILES_FILE")"
-        if [[ "$(normalize_provider "$current_provider")" == "gemini" ]]; then
-            sync_shell_environment \
-                "$current_provider" \
-                "$(jq -r --arg name "$current_profile" '.[$name].base_url' "$PROFILES_FILE")" \
-                "$(jq -r --arg name "$current_profile" '.[$name].api_key' "$PROFILES_FILE")" \
-                "$(jq -r --arg name "$current_profile" '.[$name].model' "$PROFILES_FILE")"
-            success "已同步当前 Gemini 配置 '$current_profile' 到环境变量"
-        else
-            warn "当前激活配置不是 gemini。Gemini CLI 首次启动时也可以选择 Google 登录。"
-        fi
-    else
-        warn "当前没有激活配置。你可以先运行 'sw' 添加 gemini 配置，或直接执行 'gemini' 后按提示登录。"
+        warn "当前没有激活配置。你可以先运行 'sw' 配置 Codex 中转，或直接执行 'codex --login' 登录。"
     fi
 }
 
@@ -691,49 +506,18 @@ prompt_default() {
     printf "%s\n" "${value:-$default_value}"
 }
 
-select_provider_interactive() {
-    local choice
-
-    printf "Provider 类型:\n"
-    printf "1) openai-compatible\n"
-    printf "2) gemini\n"
-    printf "3) ollama\n"
-    printf "4) openrouter\n"
-    printf "5) anthropic\n"
-    read -r -p "请选择 [1-5, 默认 1]: " choice
-
-    case "${choice:-1}" in
-        1) printf "openai-compatible\n" ;;
-        2) printf "gemini\n" ;;
-        3) printf "ollama\n" ;;
-        4) printf "openrouter\n" ;;
-        5) printf "anthropic\n" ;;
-        *) printf "openai-compatible\n" ;;
-    esac
-}
-
 add_profile_interactive() {
     local name
-    local provider
     local base_url
     local api_key
     local model
 
     name="$(prompt_required '配置名称')"
-    provider="$(select_provider_interactive)"
-    base_url="$(prompt_default 'API Base URL' "$(default_base_url_for_provider "$provider")")"
-    if [[ -z "$base_url" ]]; then
-        base_url="$(prompt_required 'API Base URL')"
-    fi
-    if [[ "$(normalize_provider "$provider")" == "ollama" ]]; then
-        read -r -p "API Key [Ollama 默认可留空]: " api_key
-    else
-        api_key="$(prompt_required 'API Key')"
-    fi
-    model="$(prompt_default '默认模型' "$(default_model_for_provider "$provider")")"
+    base_url="$(prompt_required 'API Base URL，例如 https://api.example.com/v1')"
+    api_key="$(prompt_required 'API Key')"
+    model="$(prompt_default '默认模型' 'gpt-5.4')"
 
-    save_profile "$name" "$base_url" "$api_key" "$model" "$provider"
-    warn "$(provider_note "$provider")"
+    save_profile "$name" "$base_url" "$api_key" "$model"
     test_profile "$name" || true
     activate_profile "$name" true
 }
@@ -741,11 +525,9 @@ add_profile_interactive() {
 edit_profile_interactive() {
     local name="$1"
     local profile
-    local provider
     local base_url
     local api_key
     local model
-    local new_provider
     local new_base_url
     local new_api_key
     local new_model
@@ -753,21 +535,15 @@ edit_profile_interactive() {
     profile_exists "$name" || die "配置 '$name' 不存在"
     profile="$(get_profile_json "$name")"
 
-    provider="$(jq -r '.provider // "openai-compatible"' <<<"$profile")"
     base_url="$(jq -r '.base_url' <<<"$profile")"
     api_key="$(jq -r '.api_key' <<<"$profile")"
     model="$(jq -r '.model' <<<"$profile")"
 
-    new_provider="$(prompt_default 'Provider' "$provider")"
     new_base_url="$(prompt_default 'API Base URL' "$base_url")"
-    if [[ "$(normalize_provider "$new_provider")" == "ollama" ]]; then
-        read -r -p "API Key [留空保持不变，可为空]: " new_api_key
-    else
-        read -r -p "API Key [留空保持不变]: " new_api_key
-    fi
+    read -r -p "API Key [留空保持不变]: " new_api_key
     new_model="$(prompt_default '默认模型' "$model")"
 
-    save_profile "$name" "$new_base_url" "${new_api_key:-$api_key}" "$new_model" "$new_provider"
+    save_profile "$name" "$new_base_url" "${new_api_key:-$api_key}" "$new_model"
 }
 
 select_profile_interactive() {
@@ -777,9 +553,9 @@ select_profile_interactive() {
     local selected
 
     mapfile -t names < <(jq -r 'keys[]' "$PROFILES_FILE")
-    [[ "${#names[@]}" -gt 0 ]] || die "还没有保存任何配置"
+    [[ "${#names[@]}" -gt 0 ]] || die "还没有保存任何 Codex 配置"
 
-    printf "可用配置:\n" >&2
+    printf "可用 Codex 配置:\n" >&2
     for selected in "${names[@]}"; do
         printf " %d) %s\n" "$index" "$selected" >&2
         index=$((index + 1))
@@ -797,7 +573,7 @@ manage_profiles_menu() {
     local profile_name
 
     while true; do
-        printf "\n配置管理\n"
+        printf "\nCodex 配置管理\n"
         printf "1) 查看配置列表\n"
         printf "2) 查看配置详情\n"
         printf "3) 新增配置\n"
@@ -824,19 +600,15 @@ Usage: $APP_NAME [option]
 
 Options:
   --install-codex        一键安装或升级官方 Codex CLI
-  --install-gemini       一键安装或升级 Gemini CLI
-  --list                 列出所有配置
+  --list                 列出所有 Codex 配置
   --switch NAME          切换到指定配置并启动 Codex
   --activate NAME        只切换配置，不启动 Codex
   --test [NAME]          测试指定配置；未传时测试当前配置
   --show [NAME]          显示指定配置详情；未传时显示当前配置
   --add NAME URL KEY MODEL
-                         通过命令行新增或覆盖 openai-compatible 配置
-  --add-provider NAME PROVIDER URL KEY MODEL
-                         通过命令行新增或覆盖指定 provider 配置
+                         通过命令行新增或覆盖 Codex 配置
   --delete NAME          删除指定配置
   --launch               直接启动 Codex
-  --launch-gemini        直接启动 Gemini CLI
   --help                 显示帮助
   --version              显示版本
 
@@ -863,15 +635,13 @@ main_menu() {
     while true; do
         current="$(get_current_profile_name)"
         print_header
-        printf "当前配置: %s\n\n" "${current:-未设置}"
-        printf "1) 配置新的中转站并启动\n"
+        printf "当前 Codex 配置: %s\n\n" "${current:-未设置}"
+        printf "1) 配置新的 Codex 中转并启动\n"
         printf "2) 切换已有配置并启动\n"
-        printf "3) 直接启动（使用当前配置）\n"
-        printf "4) 管理配置\n"
+        printf "3) 直接启动 Codex（使用当前配置）\n"
+        printf "4) 管理 Codex 配置\n"
         printf "5) 测试当前配置\n"
         printf "6) 一键部署官方 Codex CLI\n"
-        printf "7) 一键部署 Gemini CLI\n"
-        printf "8) 直接启动 Gemini CLI\n"
         printf "0) 退出\n"
         read -r -p "选择: " choice
 
@@ -890,11 +660,6 @@ main_menu() {
                 install_codex_cli
                 read -r -p "按回车继续..." _
                 ;;
-            7)
-                install_gemini_cli
-                read -r -p "按回车继续..." _
-                ;;
-            8) launch_gemini ;;
             0) exit 0 ;;
             *) warn "无效选项"; sleep 1 ;;
         esac
@@ -912,10 +677,6 @@ main() {
         --install-codex)
             init_store
             install_codex_cli
-            ;;
-        --install-gemini)
-            init_store
-            install_gemini_cli
             ;;
         --list)
             init_store
@@ -941,7 +702,6 @@ main() {
             if [[ $# -ge 2 ]]; then
                 test_profile "$2"
             else
-                local current
                 current="$(get_current_profile_name)"
                 [[ -n "$current" ]] || die "当前没有已激活的配置"
                 test_profile "$current"
@@ -953,7 +713,6 @@ main() {
             if [[ $# -ge 2 ]]; then
                 show_profile_detail "$2"
             else
-                local current
                 current="$(get_current_profile_name)"
                 [[ -n "$current" ]] || die "当前没有已激活的配置"
                 show_profile_detail "$current"
@@ -962,14 +721,8 @@ main() {
         --add)
             init_store
             require_cmd jq "缺少依赖 jq，请先安装，例如: sudo apt install jq"
-            [[ $# -eq 5 || $# -eq 6 ]] || die "用法: $APP_NAME --add NAME URL KEY MODEL [PROVIDER]"
-            save_profile "$2" "$3" "$4" "$5" "${6:-$DEFAULT_PROVIDER}"
-            ;;
-        --add-provider)
-            init_store
-            require_cmd jq "缺少依赖 jq，请先安装，例如: sudo apt install jq"
-            [[ $# -eq 6 ]] || die "用法: $APP_NAME --add-provider NAME PROVIDER URL KEY MODEL"
-            save_profile "$2" "$4" "$5" "$6" "$3"
+            [[ $# -eq 5 ]] || die "用法: $APP_NAME --add NAME URL KEY MODEL"
+            save_profile "$2" "$3" "$4" "$5"
             ;;
         --delete)
             init_store
@@ -979,9 +732,6 @@ main() {
             ;;
         --launch)
             launch_codex
-            ;;
-        --launch-gemini)
-            launch_gemini
             ;;
         "")
             init_store
