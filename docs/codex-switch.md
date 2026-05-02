@@ -8,7 +8,8 @@
 ```text
 .
 ├── codex-switch.sh   # 主脚本
-├── install-codex-switch.sh
+├── install.sh              # 通用安装器
+├── install-codex-switch.sh # 兼容旧命令的安装入口
 ├── README.md
 └── HISTORY.md
 ```
@@ -32,20 +33,20 @@
 ```bash
 git clone https://github.com/liut-coder/openbox.git
 cd openbox
-bash install-codex-switch.sh
+bash install.sh codex-switch
 ```
 
 ### 远程安装
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/liut-coder/openbox/main/install-codex-switch.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/liut-coder/openbox/main/install.sh) codex-switch
 ```
 
 如果你 fork 了仓库，把上面的 `liut-coder/codex-switch` 改成你自己的仓库路径即可。也可以通过环境变量覆盖下载地址：
 
 ```bash
-CODEX_INSTALL_BASE_URL="https://raw.githubusercontent.com/<your-name>/openbox/main" \
-bash <(curl -fsSL https://raw.githubusercontent.com/<your-name>/openbox/main/install-codex-switch.sh)
+OPENBOX_INSTALL_BASE_URL="https://raw.githubusercontent.com/<your-name>/openbox/main" \
+bash <(curl -fsSL https://raw.githubusercontent.com/<your-name>/openbox/main/install.sh) codex-switch
 ```
 
 ## 使用
@@ -178,6 +179,7 @@ sudo apt install -y jq curl
 standalone/
 ├── .gitignore
 ├── codex-switch.sh
+├── install.sh
 ├── install-codex-switch.sh
 ├── README.md
 └── HISTORY.md
