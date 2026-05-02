@@ -4,7 +4,7 @@
 
 ## 脚本
 
-- `openbox.sh`: Caddy 交互式管理脚本，支持一键反代、配置预览、语法校验、失败回滚。
+- `caddy_manager.sh`: Caddy 交互式管理脚本，支持一键反代、配置预览、语法校验、失败回滚。
 - `codex-switch.sh`: Codex / OpenAI-compatible 中转配置管理器，支持多配置切换、测试、启动 Codex CLI。
 - `install-codex-switch.sh`: `codex-switch.sh` 安装器，会安装为 `codex-switch` 和 `sw` 两个命令。
 
@@ -45,13 +45,13 @@ bash <(curl -fsSL https://raw.githubusercontent.com/liut-coder/openbox/main/inst
 ## 使用 Caddy 管理脚本
 
 ```bash
-bash openbox.sh
+bash caddy_manager.sh
 ```
 
 常用快捷方式：
 
 ```bash
-alias cm='bash /path/to/openbox.sh'
+alias cm='bash /path/to/caddy_manager.sh'
 ```
 
 ## Codex Switch 常用命令
@@ -70,6 +70,6 @@ sw --delete work
 
 ## 注意
 
-- `openbox.sh` 建议使用 `root` 运行。
+- `caddy_manager.sh` 建议使用 `root` 运行。
 - `codex-switch.sh` 依赖 `bash`、`curl`、`jq`；安装器会尝试自动安装缺失依赖。
 - 不要提交私钥、API Key、OAuth Token、生产配置文件。
