@@ -114,9 +114,8 @@ install_caddy() {
         systemctl enable caddy
         echo -e "${GREEN}已设置Caddy开机自启${NC}"
         
-        # 创建日志目录
-        mkdir -p "$LOG_DIR"
-        chown -R caddy:caddy "$LOG_DIR"
+        # 创建并修复日志目录权限
+        prepare_caddy_log_permissions "$CADDY_CONFIG" || return 1
         
         return 0
     else
@@ -273,6 +272,7 @@ edit_config() {
         read -p "是否立即重启Caddy服务以应用新配置？(y/n): " restart_choice
         
         if [[ "$restart_choice" == "y" || "$restart_choice" == "Y" ]]; then
+            prepare_caddy_log_permissions "$CADDY_CONFIG" || return 1
             if systemctl restart caddy; then
                 echo -e "${GREEN}Caddy重启成功！新配置已生效${NC}"
             else
@@ -289,7 +289,9 @@ edit_config() {
         
         if [[ "$restore_choice" == "y" || "$restore_choice" == "Y" ]]; then
             cp "$backup_file" "$CADDY_CONFIG"
-            chown caddy:caddy "$CADDY_CONFIG"
+            get_caddy_service_user_group
+            chown "$CADDY_RUN_USER:$CADDY_RUN_GROUP" "$CADDY_CONFIG" 2>/dev/null || true
+            prepare_caddy_log_permissions "$CADDY_CONFIG" || true
             echo -e "${GREEN}已恢复备份文件${NC}"
         else
             echo -e "${YELLOW}保留当前配置文件，请手动修复语法错误${NC}"
@@ -332,6 +334,7 @@ view_config() {
 restart_caddy() {
     echo -e "${YELLOW}正在重启Caddy服务...${NC}"
     
+    prepare_caddy_log_permissions "$CADDY_CONFIG" || return 1
     if systemctl restart caddy; then
         echo -e "${GREEN}Caddy重启成功！${NC}"
         systemctl status caddy --no-pager -l
@@ -376,6 +379,63 @@ display_site_url() {
 
 valid_no_space() {
     [[ -n "$1" && ! "$1" =~ [[:space:]] ]]
+}
+
+
+get_caddy_service_user_group() {
+    local service_user service_group
+
+    service_user="$(systemctl show caddy -p User --value 2>/dev/null || true)"
+    service_group="$(systemctl show caddy -p Group --value 2>/dev/null || true)"
+
+    CADDY_RUN_USER="${service_user:-caddy}"
+    CADDY_RUN_GROUP="${service_group:-$CADDY_RUN_USER}"
+}
+
+prepare_caddy_log_permissions() {
+    local config_file="$1"
+    local log_file log_parent
+
+    get_caddy_service_user_group
+
+    mkdir -p "$LOG_DIR" || {
+        error "无法创建日志目录：$LOG_DIR"
+        return 1
+    }
+
+    if ! chown "$CADDY_RUN_USER:$CADDY_RUN_GROUP" "$LOG_DIR" 2>/dev/null; then
+        warn "无法修改日志目录属主为 $CADDY_RUN_USER:$CADDY_RUN_GROUP：$LOG_DIR"
+    fi
+    chmod 755 "$LOG_DIR" 2>/dev/null || true
+
+    [[ -f "$config_file" ]] || return 0
+
+    while read -r log_file; do
+        [[ -n "$log_file" ]] || continue
+        log_file="${log_file%\"}"
+        log_file="${log_file#\"}"
+
+        case "$log_file" in
+            /*) ;;
+            *) continue ;;
+        esac
+
+        log_parent="$(dirname "$log_file")"
+        mkdir -p "$log_parent" || {
+            error "无法创建日志目录：$log_parent"
+            return 1
+        }
+        touch "$log_file" || {
+            error "无法创建或写入日志文件：$log_file"
+            return 1
+        }
+
+        if ! chown "$CADDY_RUN_USER:$CADDY_RUN_GROUP" "$log_parent" "$log_file" 2>/dev/null; then
+            warn "无法修改日志路径属主为 $CADDY_RUN_USER:$CADDY_RUN_GROUP：$log_file"
+        fi
+        chmod 755 "$log_parent" 2>/dev/null || true
+        chmod 644 "$log_file" 2>/dev/null || true
+    done < <(awk '$1 == "output" && $2 == "file" { print $3 }' "$config_file")
 }
 
 choose_upstream() {
@@ -504,6 +564,12 @@ apply_candidate_config() {
     local tmp_config="$1"
     local backup_file
 
+    info "正在准备Caddy日志目录权限..."
+    if ! prepare_caddy_log_permissions "$tmp_config"; then
+        error "日志目录或日志文件权限准备失败，未写入Caddyfile。"
+        return 1
+    fi
+
     info "正在校验Caddy配置..."
     if ! caddy validate --config "$tmp_config" --adapter caddyfile; then
         error "配置校验失败，未写入Caddyfile。可能是域名重复或配置格式有误。"
@@ -517,7 +583,8 @@ apply_candidate_config() {
     fi
 
     cp "$tmp_config" "$CADDY_CONFIG"
-    chown caddy:caddy "$CADDY_CONFIG" 2>/dev/null
+    get_caddy_service_user_group
+    chown "$CADDY_RUN_USER:$CADDY_RUN_GROUP" "$CADDY_CONFIG" 2>/dev/null || true
     caddy fmt --overwrite "$CADDY_CONFIG" >/dev/null 2>&1 || true
 
     systemctl enable caddy >/dev/null 2>&1
@@ -528,9 +595,11 @@ apply_candidate_config() {
     error "Caddy重载/重启失败，正在恢复备份配置。"
     if [[ -f "$backup_file" ]]; then
         cp "$backup_file" "$CADDY_CONFIG"
+        prepare_caddy_log_permissions "$CADDY_CONFIG" >/dev/null 2>&1 || true
         systemctl restart caddy >/dev/null 2>&1 || true
     fi
     error "请执行 systemctl status caddy -l 查看原因"
+    error "如果提示 open $LOG_DIR/*.log: permission denied，请检查日志目录属主和权限"
     return 1
 }
 
@@ -575,8 +644,7 @@ one_click_reverse_proxy() {
         return 0
     }
 
-    mkdir -p "$(dirname "$CADDY_CONFIG")" "$LOG_DIR"
-    chown -R caddy:caddy "$LOG_DIR" 2>/dev/null
+    mkdir -p "$(dirname "$CADDY_CONFIG")"
 
     tmp_config="$(mktemp)"
     create_candidate_config "$site_block" "$REVERSE_PROXY_WRITE_MODE" "$tmp_config"
