@@ -28,27 +28,34 @@ run_install() {
 
 show_help() {
     cat <<EOF
-openbox 工具箱入口
+openbox 中文工具箱入口
 
 用法:
   bash <(curl -fsSL $DEFAULT_BASE_URL)
   bash <(curl -fsSL $DEFAULT_BASE_URL) <工具名>
   bash <(curl -fsSL $DEFAULT_BASE_URL) --list
 
-可用工具:
-  codex-switch   Codex 中转 / 配置切换工具
-  claude-switch  Claude Code / 网关切换工具
-  caddy-manager  Caddy 反代管理工具
-  all            安装全部工具
+工具分类:
+  AI 类
+    codex-switch   Codex 中转 / 配置切换工具
+    claude-switch  Claude Code / 网关切换工具
+
+  转发 / 反代类
+    caddy-manager  Caddy 反代管理工具
+    forward        通用端口转发工具
+
+  其他
+    all            安装全部工具
 
 示例:
   bash <(curl -fsSL $DEFAULT_BASE_URL) codex-switch
   bash <(curl -fsSL $DEFAULT_BASE_URL) claude-switch
   bash <(curl -fsSL $DEFAULT_BASE_URL) caddy-manager
+  bash <(curl -fsSL $DEFAULT_BASE_URL) forward
   bash <(curl -fsSL $DEFAULT_BASE_URL) all
 
 说明:
-  - 交互式终端下，不带参数会显示中文工具箱菜单
+  - 交互式终端下，不带参数会显示中文分类菜单
   - 非交互环境下，不带参数会显示本帮助
   - 传入工具名后会转交给 install.sh
   - 也可以直接使用: bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) <工具名>
@@ -57,16 +64,22 @@ EOF
 
 show_menu() {
     cat <<'EOF'
-========================================
-          openbox 中文工具箱
-========================================
-  1. Codex 配置切换        codex-switch / sw
-  2. Claude 配置切换       claude-switch / cw
-  3. Caddy 反代管理        caddy-manager / cm
-  4. 安装全部工具          all
-----------------------------------------
+================================================
+                openbox 中文工具箱
+================================================
+ AI 类
+  1. Codex 配置切换           codex-switch / sw
+  2. Claude 配置切换          claude-switch / cw
+
+ 转发 / 反代类
+  3. Caddy 反代管理           caddy-manager / cm
+  4. 通用端口转发             forward
+
+ 其他
+  9. 安装全部工具             all
+------------------------------------------------
   0. 退出
-========================================
+================================================
 EOF
 
     local choice
@@ -75,7 +88,8 @@ EOF
         1|codex-switch|codex|sw) run_install codex-switch ;;
         2|claude-switch|claude|cw) run_install claude-switch ;;
         3|caddy-manager|caddy|cm) run_install caddy-manager ;;
-        4|all) run_install all ;;
+        4|forward) run_install forward ;;
+        9|all) run_install all ;;
         0|q|quit|exit) exit 0 ;;
         *) die "无效选择: $choice" ;;
     esac
@@ -96,7 +110,7 @@ main() {
         --list|-l)
             run_install --list
             ;;
-        codex-switch|codex|sw|claude-switch|claude|cw|caddy-manager|caddy|cm|all)
+        codex-switch|codex|sw|claude-switch|claude|cw|caddy-manager|caddy|cm|forward|all)
             run_install "$@"
             ;;
         *)

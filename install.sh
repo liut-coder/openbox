@@ -147,12 +147,29 @@ install_caddy_manager() {
     log "启动: cm"
 }
 
+install_forward_tool() {
+    local source_script
+
+    ensure_commands curl iptables
+    source_script="$(resolve_source "forward.sh")"
+
+    log "安装 Forward 转发工具..."
+    install_file "$source_script" "$TARGET_DIR/forward"
+
+    log "安装完成:"
+    log "  $TARGET_DIR/forward"
+    log ""
+    log "启动: forward --help"
+}
+
 install_all() {
     install_codex_switch
     echo ""
     install_claude_switch
     echo ""
     install_caddy_manager
+    echo ""
+    install_forward_tool
 }
 
 uninstall_target() {
@@ -169,10 +186,15 @@ uninstall_target() {
             run_privileged rm -f "$TARGET_DIR/caddy-manager" "$TARGET_DIR/cm"
             log "已卸载 caddy-manager"
             ;;
+        forward)
+            run_privileged rm -f "$TARGET_DIR/forward"
+            log "已卸载 forward"
+            ;;
         all)
             uninstall_target codex-switch
             uninstall_target claude-switch
             uninstall_target caddy-manager
+            uninstall_target forward
             ;;
         *)
             die "未知卸载目标: $1"
@@ -186,6 +208,7 @@ show_list() {
   codex-switch   安装 Codex 配置切换工具（命令: codex-switch / sw）
   claude-switch  安装 Claude 配置切换工具（命令: claude-switch / cw）
   caddy-manager  安装 Caddy 反代管理工具（命令: caddy-manager / cm）
+  forward        安装通用端口转发工具（命令: forward）
   all            安装全部工具
 EOF
 }
@@ -199,11 +222,17 @@ openbox 中文工具箱安装器
   bash install.sh --list
   bash install.sh --uninstall <工具名>
 
-可用工具:
-  codex-switch   Codex 中转 / 配置切换工具
-  claude-switch  Claude Code / 网关切换工具
-  caddy-manager  Caddy 反代管理工具
-  all            安装全部工具
+工具分类:
+  AI 类
+    codex-switch   Codex 中转 / 配置切换工具
+    claude-switch  Claude Code / 网关切换工具
+
+  转发 / 反代类
+    caddy-manager  Caddy 反代管理工具
+    forward        通用端口转发工具
+
+  其他
+    all            安装全部工具
 
 环境变量:
   TARGET_DIR               安装目录，默认 /usr/local/bin
@@ -213,22 +242,29 @@ openbox 中文工具箱安装器
   bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) codex-switch
   bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) claude-switch
   bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) caddy-manager
+  bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) forward
   bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) all
 EOF
 }
 
 show_menu() {
     cat <<'EOF'
-========================================
-        openbox 中文工具箱安装器
-========================================
+================================================
+            openbox 中文工具箱安装器
+================================================
+ AI 类
   1. 安装 Codex 配置切换      codex-switch / sw
   2. 安装 Claude 配置切换     claude-switch / cw
+
+ 转发 / 反代类
   3. 安装 Caddy 反代管理      caddy-manager / cm
-  4. 安装全部工具             all
-----------------------------------------
+  4. 安装通用端口转发         forward
+
+ 其他
+  9. 安装全部工具             all
+------------------------------------------------
   0. 退出
-========================================
+================================================
 EOF
 
     local choice
@@ -237,7 +273,8 @@ EOF
         1|codex-switch|codex|sw) install_codex_switch ;;
         2|claude-switch|claude|cw) install_claude_switch ;;
         3|caddy-manager|caddy|cm) install_caddy_manager ;;
-        4|all) install_all ;;
+        4|forward) install_forward_tool ;;
+        9|all) install_all ;;
         0|q|quit|exit) exit 0 ;;
         *) die "无效选择: $choice" ;;
     esac
@@ -255,6 +292,9 @@ main() {
             ;;
         caddy-manager|caddy|cm)
             install_caddy_manager
+            ;;
+        forward)
+            install_forward_tool
             ;;
         all)
             install_all
