@@ -48,7 +48,8 @@ openbox 统一入口
   bash <(curl -fsSL $DEFAULT_BASE_URL) all
 
 说明:
-  - 根入口默认显示本帮助
+  - 交互式终端下，不带参数会显示选择菜单
+  - 非交互环境下，不带参数会显示本帮助
   - 传入目标后会转交给 install.sh
   - 也可以直接使用: bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) <target>
 EOF

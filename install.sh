@@ -206,7 +206,7 @@ openbox 通用安装器
   all
 
 环境变量:
-  TARGET_DIR              安装目录，默认 /usr/local/bin
+  TARGET_DIR               安装目录，默认 /usr/local/bin
   OPENBOX_INSTALL_BASE_URL 下载地址，默认 $DEFAULT_BASE_URL
 
 示例:
@@ -215,6 +215,28 @@ openbox 通用安装器
   bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) caddy-manager
   bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) all
 EOF
+}
+
+show_menu() {
+    cat <<'EOF'
+请选择要安装的脚本:
+  1) codex-switch
+  2) claude-switch
+  3) caddy-manager
+  4) all
+  0) 退出
+EOF
+
+    local choice
+    read -r -p "输入编号: " choice
+    case "$choice" in
+        1) install_codex_switch ;;
+        2) install_claude_switch ;;
+        3) install_caddy_manager ;;
+        4) install_all ;;
+        0) exit 0 ;;
+        *) die "无效选择: $choice" ;;
+    esac
 }
 
 main() {
@@ -240,7 +262,14 @@ main() {
             [[ $# -ge 2 ]] || die "用法: $0 --uninstall <target>"
             uninstall_target "$2"
             ;;
-        --help|-h|"")
+        "")
+            if [[ -t 0 && -t 1 ]]; then
+                show_menu
+            else
+                show_help
+            fi
+            ;;
+        --help|-h)
             show_help
             ;;
         *)
