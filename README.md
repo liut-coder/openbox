@@ -10,31 +10,44 @@
 - `install.sh`: 通用安装器，可安装 `codex-switch`、`claude-switch`、`caddy-manager` 或全部脚本。
 - `install-codex-switch.sh`: 兼容旧命令的安装入口，内部调用 `install.sh codex-switch`。
 
-## 通用一键安装
+## 统一入口
+
+推荐直接使用 Cloudflare 脚本入口：
+
+```bash
+bash <(curl -fsSL https://sh.misk.cc)
+```
 
 查看可安装目标：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/liut-coder/openbox/main/install.sh) --list
+bash <(curl -fsSL https://sh.misk.cc) --list
 ```
 
 安装全部脚本：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/liut-coder/openbox/main/install.sh) all
+bash <(curl -fsSL https://sh.misk.cc) all
 ```
 
 安装到指定目录：
 
 ```bash
 TARGET_DIR="$HOME/.local/bin" \
+bash <(curl -fsSL https://sh.misk.cc) all
+```
+
+如果 Cloudflare 入口暂时不可用，也可以直接使用 GitHub Raw：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/liut-coder/openbox/main/openbox.sh)
 bash <(curl -fsSL https://raw.githubusercontent.com/liut-coder/openbox/main/install.sh) all
 ```
 
 ## 一键安装并启动 Codex Switch
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/liut-coder/openbox/main/install.sh) codex-switch && sw
+bash <(curl -fsSL https://sh.misk.cc) codex-switch && sw
 ```
 
 旧安装命令仍然可用：
@@ -78,7 +91,7 @@ sw --official
 ## 一键安装并启动 Claude Switch
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/liut-coder/openbox/main/install.sh) claude-switch && cw
+bash <(curl -fsSL https://sh.misk.cc) claude-switch && cw
 ```
 
 安装完成后可直接使用：
@@ -118,7 +131,7 @@ cw --official
 ## 一键安装 Caddy 管理脚本
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/liut-coder/openbox/main/install.sh) caddy-manager
+bash <(curl -fsSL https://sh.misk.cc) caddy-manager
 ```
 
 安装完成后可直接使用：
@@ -135,7 +148,7 @@ caddy-manager
 1. 安装管理脚本：
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/liut-coder/openbox/main/install.sh) caddy-manager
+bash <(curl -fsSL https://sh.misk.cc) caddy-manager
 ```
 
 2. 启动菜单：

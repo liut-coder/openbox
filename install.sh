@@ -183,10 +183,10 @@ uninstall_target() {
 show_list() {
     cat <<EOF
 可安装目标:
-  codex-switch   安装 codex-switch / sw
+  codex-switch    安装 codex-switch / sw
   claude-switch   安装 claude-switch / cw
-  caddy-manager  安装 caddy-manager / cm
-  all            安装全部脚本
+  caddy-manager   安装 caddy-manager / cm
+  all             安装全部脚本
 EOF
 }
 
