@@ -5,7 +5,7 @@
 ## 脚本
 
 - `caddy_manager.sh`: Caddy 交互式管理脚本，支持一键反代、配置预览、语法校验、失败回滚。
-- `forward.sh`: 通用端口转发脚本，支持单端口 TCP/UDP 转发、全端口转发（保留 SSH）、规则查看与清理。
+- `forward.sh`: 安全版通用端口转发脚本，支持自动识别并保护 SSH 端口、规则备份/回滚、单端口 TCP/UDP 转发、全端口转发、规则查看与清理。
 - `codex-switch.sh`: Codex / OpenAI-compatible 中转配置管理器，支持多配置切换、测试、启动 Codex CLI。
 - `claude-switch.sh`: Claude Code / AgentRouter 配置管理器，支持官方模式和第三方网关切换。
 - `install.sh`: 通用安装器，可安装 `codex-switch`、`claude-switch`、`caddy-manager`、`forward` 或全部脚本。
@@ -163,7 +163,10 @@ forward -a -s 8080 -t 192.168.1.100 -p 80 -P tcp
 # 同时转发 TCP + UDP
 forward -a -s 7001 -t 1.2.3.4 -p 7001 -P all
 
-# 全端口转发，保留 SSH 22
+# 全端口转发，自动识别并保护当前 SSH 端口
+forward --all -t 1.2.3.4
+
+# 手动指定 SSH 端口
 forward --all -t 1.2.3.4 --ssh-port 22
 
 # 查看规则
@@ -171,6 +174,9 @@ forward --list
 
 # 清理本脚本添加的规则
 forward --flush
+
+# 如误操作，可用自动生成的回滚脚本恢复
+/root/forward-rollback.sh
 ```
 
 ## Caddy 反代部署
@@ -268,7 +274,7 @@ cw --delete router
 ## 注意
 
 - `caddy_manager.sh` 建议使用 `root` 运行。
-- `forward.sh` 需要 `root` 运行，并依赖 `iptables`；会修改转发/NAT 规则。
+- `forward.sh` 需要 `root` 运行，并依赖 `iptables`；会修改转发/NAT 规则，执行前会备份当前规则并生成 `/root/forward-rollback.sh` 回滚脚本。
 - `codex-switch.sh` 依赖 `bash`、`curl`、`jq`；安装器会尝试自动安装缺失依赖。
 - `claude-switch.sh` 依赖 `bash`、`curl`、`jq`；安装器会尝试自动安装缺失依赖。
 - `caddy_manager.sh` 会按需安装 Caddy，并写入 `/etc/caddy/Caddyfile`。

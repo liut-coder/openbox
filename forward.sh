@@ -1,359 +1,290 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_TAG="nax-forward"
+TAG="nax-forward"
+TARGET_IP=""
+SSH_PORT=""
 ACTION=""
 SOURCE_PORT=""
-TARGET_IP=""
 TARGET_PORT=""
 PROTOCOL="tcp"
-ALL_MODE="false"
-SSH_PORT="22"
 
 usage() {
 cat <<USAGE
-通用端口转发脚本
-
 用法:
+  全端口转发，自动保护 SSH:
+    $0 --all -t 目标IP
+
+  指定 SSH 端口:
+    $0 --all -t 目标IP --ssh-port 2222
+
   单端口添加:
     $0 -a -s 源端口 -t 目标IP -p 目标端口 -P tcp|udp|all
 
   单端口删除:
     $0 -d -s 源端口 -t 目标IP -p 目标端口 -P tcp|udp|all
 
-  全端口转发，保留 SSH:
-    $0 --all -t 目标IP --ssh-port 22
-
   查看规则:
     $0 --list
 
   清理本脚本规则:
     $0 --flush
-
-示例:
-  $0 -a -s 8080 -t 192.168.1.100 -p 80 -P tcp
-  $0 -a -s 7001 -t 1.2.3.4 -p 7001 -P all
-  $0 --all -t 1.2.3.4 --ssh-port 22
 USAGE
 exit 1
 }
 
-need_root() {
-    [ "$(id -u)" = "0" ] || {
-        echo "错误：请用 root 用户运行"
-        exit 1
-    }
-}
+[ "$(id -u)" = "0" ] || { echo "请用 root 运行"; exit 1; }
 
 cmd_exists() {
     command -v "$1" >/dev/null 2>&1
-}
-
-is_ipv6() {
-    [[ "$1" == *:* ]]
 }
 
 valid_port() {
     [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
 }
 
-valid_proto() {
-    [[ "$1" == "tcp" || "$1" == "udp" || "$1" == "all" ]]
+is_ipv6() {
+    [[ "$1" == *:* ]]
+}
+
+detect_ssh_port() {
+    if [ -n "${SSH_PORT:-}" ]; then
+        echo "$SSH_PORT"
+        return
+    fi
+
+    # 优先从当前 SSH 连接识别本机端口
+    if [ -n "${SSH_CONNECTION:-}" ]; then
+        # SSH_CONNECTION 格式：客户端IP 客户端端口 服务端IP 服务端端口
+        echo "$SSH_CONNECTION" | awk '{print $4}'
+        return
+    fi
+
+    # 再从 sshd 配置读取
+    local conf_port
+    conf_port=$(grep -Ei '^[[:space:]]*Port[[:space:]]+[0-9]+' /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | tail -n1 || true)
+    if [ -n "$conf_port" ]; then
+        echo "$conf_port"
+        return
+    fi
+
+    # 再尝试从监听端口识别
+    if cmd_exists ss; then
+        ss -lntp 2>/dev/null | grep -E 'sshd|dropbear' | awk '{print $4}' | awk -F: '{print $NF}' | head -n1
+        return
+    fi
+
+    echo "22"
 }
 
 enable_forward() {
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
-    if ! grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf 2>/dev/null; then
-        echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
-    fi
-
-    if cmd_exists ip6tables; then
-        sysctl -w net.ipv6.conf.all.forwarding=1 >/dev/null 2>&1 || true
-        if ! grep -q '^net.ipv6.conf.all.forwarding=1' /etc/sysctl.conf 2>/dev/null; then
-            echo 'net.ipv6.conf.all.forwarding=1' >> /etc/sysctl.conf
-        fi
-    fi
+    grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf 2>/dev/null || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
 }
 
-ensure_tools() {
-    if ! cmd_exists iptables; then
-        echo "错误：未找到 iptables"
-        echo "Debian/Ubuntu: apt update && apt install -y iptables"
-        echo "CentOS/Rocky: yum install -y iptables-services"
+backup_rules() {
+    mkdir -p /root/forward-backup
+    iptables-save > /root/forward-backup/iptables.$(date +%F-%H%M%S).bak
+    cat > /root/forward-rollback.sh <<'ROLLBACK'
+#!/usr/bin/env bash
+set -e
+latest=$(ls -t /root/forward-backup/iptables.*.bak 2>/dev/null | head -n1)
+[ -n "$latest" ] || { echo "没有找到备份"; exit 1; }
+iptables-restore < "$latest"
+echo "已回滚 iptables 规则：$latest"
+ROLLBACK
+    chmod +x /root/forward-rollback.sh
+}
+
+protect_ssh() {
+    local port="$1"
+
+    valid_port "$port" || {
+        echo "SSH 端口不合法：$port"
         exit 1
-    fi
-}
-
-ensure_docker_user_chain() {
-    if iptables -L DOCKER-USER -n >/dev/null 2>&1; then
-        if ! iptables -C DOCKER-USER -j RETURN >/dev/null 2>&1; then
-            iptables -A DOCKER-USER -j RETURN || true
-        fi
-    fi
-}
-
-add_one_proto_v4() {
-    local proto="$1"
-
-    if iptables -t nat -C PREROUTING -p "$proto" --dport "$SOURCE_PORT" \
-        -m comment --comment "$SCRIPT_TAG single $proto $SOURCE_PORT->$TARGET_IP:$TARGET_PORT" \
-        -j DNAT --to-destination "$TARGET_IP:$TARGET_PORT" 2>/dev/null; then
-        echo "IPv4 $proto 规则已存在：$SOURCE_PORT -> $TARGET_IP:$TARGET_PORT"
-    else
-        iptables -t nat -A PREROUTING -p "$proto" --dport "$SOURCE_PORT" \
-            -m comment --comment "$SCRIPT_TAG single $proto $SOURCE_PORT->$TARGET_IP:$TARGET_PORT" \
-            -j DNAT --to-destination "$TARGET_IP:$TARGET_PORT"
-
-        iptables -C FORWARD -p "$proto" -d "$TARGET_IP" --dport "$TARGET_PORT" \
-            -m comment --comment "$SCRIPT_TAG forward $proto $TARGET_IP:$TARGET_PORT" \
-            -j ACCEPT 2>/dev/null || \
-        iptables -A FORWARD -p "$proto" -d "$TARGET_IP" --dport "$TARGET_PORT" \
-            -m comment --comment "$SCRIPT_TAG forward $proto $TARGET_IP:$TARGET_PORT" \
-            -j ACCEPT
-
-        echo "已添加 IPv4 $proto：$SOURCE_PORT -> $TARGET_IP:$TARGET_PORT"
-    fi
-}
-
-del_one_proto_v4() {
-    local proto="$1"
-
-    iptables -t nat -D PREROUTING -p "$proto" --dport "$SOURCE_PORT" \
-        -m comment --comment "$SCRIPT_TAG single $proto $SOURCE_PORT->$TARGET_IP:$TARGET_PORT" \
-        -j DNAT --to-destination "$TARGET_IP:$TARGET_PORT" 2>/dev/null || true
-
-    iptables -D FORWARD -p "$proto" -d "$TARGET_IP" --dport "$TARGET_PORT" \
-        -m comment --comment "$SCRIPT_TAG forward $proto $TARGET_IP:$TARGET_PORT" \
-        -j ACCEPT 2>/dev/null || true
-
-    echo "已删除 IPv4 $proto：$SOURCE_PORT -> $TARGET_IP:$TARGET_PORT"
-}
-
-add_one_proto_v6() {
-    local proto="$1"
-
-    cmd_exists ip6tables || {
-        echo "跳过 IPv6：未安装 ip6tables"
-        return
     }
 
-    if ip6tables -t nat -C PREROUTING -p "$proto" --dport "$SOURCE_PORT" \
-        -m comment --comment "$SCRIPT_TAG single6 $proto $SOURCE_PORT->[$TARGET_IP]:$TARGET_PORT" \
-        -j DNAT --to-destination "[$TARGET_IP]:$TARGET_PORT" 2>/dev/null; then
-        echo "IPv6 $proto 规则已存在：$SOURCE_PORT -> [$TARGET_IP]:$TARGET_PORT"
-    else
-        ip6tables -t nat -A PREROUTING -p "$proto" --dport "$SOURCE_PORT" \
-            -m comment --comment "$SCRIPT_TAG single6 $proto $SOURCE_PORT->[$TARGET_IP]:$TARGET_PORT" \
-            -j DNAT --to-destination "[$TARGET_IP]:$TARGET_PORT"
+    # INPUT 保护
+    iptables -C INPUT -p tcp --dport "$port" -m comment --comment "$TAG protect-ssh-$port" -j ACCEPT 2>/dev/null || \
+    iptables -I INPUT 1 -p tcp --dport "$port" -m comment --comment "$TAG protect-ssh-$port" -j ACCEPT
 
-        ip6tables -C FORWARD -p "$proto" -d "$TARGET_IP" --dport "$TARGET_PORT" \
-            -m comment --comment "$SCRIPT_TAG forward6 $proto [$TARGET_IP]:$TARGET_PORT" \
-            -j ACCEPT 2>/dev/null || \
-        ip6tables -A FORWARD -p "$proto" -d "$TARGET_IP" --dport "$TARGET_PORT" \
-            -m comment --comment "$SCRIPT_TAG forward6 $proto [$TARGET_IP]:$TARGET_PORT" \
-            -j ACCEPT
+    # NAT PREROUTING 提前 RETURN，防止 SSH 被 DNAT 转走
+    iptables -t nat -C PREROUTING -p tcp --dport "$port" -m comment --comment "$TAG keep-ssh-$port" -j RETURN 2>/dev/null || \
+    iptables -t nat -I PREROUTING 1 -p tcp --dport "$port" -m comment --comment "$TAG keep-ssh-$port" -j RETURN
 
-        echo "已添加 IPv6 $proto：$SOURCE_PORT -> [$TARGET_IP]:$TARGET_PORT"
-    fi
-}
-
-del_one_proto_v6() {
-    local proto="$1"
-
-    cmd_exists ip6tables || {
-        echo "跳过 IPv6：未安装 ip6tables"
-        return
-    }
-
-    ip6tables -t nat -D PREROUTING -p "$proto" --dport "$SOURCE_PORT" \
-        -m comment --comment "$SCRIPT_TAG single6 $proto $SOURCE_PORT->[$TARGET_IP]:$TARGET_PORT" \
-        -j DNAT --to-destination "[$TARGET_IP]:$TARGET_PORT" 2>/dev/null || true
-
-    ip6tables -D FORWARD -p "$proto" -d "$TARGET_IP" --dport "$TARGET_PORT" \
-        -m comment --comment "$SCRIPT_TAG forward6 $proto [$TARGET_IP]:$TARGET_PORT" \
-        -j ACCEPT 2>/dev/null || true
-
-    echo "已删除 IPv6 $proto：$SOURCE_PORT -> [$TARGET_IP]:$TARGET_PORT"
+    echo "已保护 SSH 端口：$port"
 }
 
 add_masquerade() {
-    iptables -t nat -C POSTROUTING \
-        -m comment --comment "$SCRIPT_TAG masquerade" \
-        -j MASQUERADE 2>/dev/null || \
-    iptables -t nat -A POSTROUTING \
-        -m comment --comment "$SCRIPT_TAG masquerade" \
-        -j MASQUERADE
+    iptables -t nat -C POSTROUTING -m comment --comment "$TAG masquerade" -j MASQUERADE 2>/dev/null || \
+    iptables -t nat -A POSTROUTING -m comment --comment "$TAG masquerade" -j MASQUERADE
+}
 
-    if cmd_exists ip6tables; then
-        ip6tables -t nat -C POSTROUTING \
-            -m comment --comment "$SCRIPT_TAG masquerade6" \
-            -j MASQUERADE 2>/dev/null || \
-        ip6tables -t nat -A POSTROUTING \
-            -m comment --comment "$SCRIPT_TAG masquerade6" \
-            -j MASQUERADE 2>/dev/null || true
+add_all() {
+    [ -n "$TARGET_IP" ] || usage
+
+    if is_ipv6 "$TARGET_IP"; then
+        echo "全端口模式建议使用 IPv4，IPv6 请单端口配置"
+        exit 1
     fi
+
+    SSH_PORT="$(detect_ssh_port)"
+    valid_port "$SSH_PORT" || {
+        echo "无法安全识别 SSH 端口，请手动指定：--ssh-port 端口"
+        exit 1
+    }
+
+    echo "检测到 SSH 端口：$SSH_PORT"
+    echo "目标后端 IP：$TARGET_IP"
+
+    backup_rules
+    enable_forward
+    protect_ssh "$SSH_PORT"
+
+    iptables -t nat -C PREROUTING -p tcp ! --dport "$SSH_PORT" \
+        -m comment --comment "$TAG all-tcp-to-$TARGET_IP" \
+        -j DNAT --to-destination "$TARGET_IP" 2>/dev/null || \
+    iptables -t nat -A PREROUTING -p tcp ! --dport "$SSH_PORT" \
+        -m comment --comment "$TAG all-tcp-to-$TARGET_IP" \
+        -j DNAT --to-destination "$TARGET_IP"
+
+    iptables -t nat -C PREROUTING -p udp \
+        -m comment --comment "$TAG all-udp-to-$TARGET_IP" \
+        -j DNAT --to-destination "$TARGET_IP" 2>/dev/null || \
+    iptables -t nat -A PREROUTING -p udp \
+        -m comment --comment "$TAG all-udp-to-$TARGET_IP" \
+        -j DNAT --to-destination "$TARGET_IP"
+
+    iptables -C FORWARD -d "$TARGET_IP" \
+        -m comment --comment "$TAG forward-to-$TARGET_IP" \
+        -j ACCEPT 2>/dev/null || \
+    iptables -A FORWARD -d "$TARGET_IP" \
+        -m comment --comment "$TAG forward-to-$TARGET_IP" \
+        -j ACCEPT
+
+    add_masquerade
+    save_rules
+
+    echo "完成：SSH $SSH_PORT 保留在本机，其它 TCP/UDP 转发到 $TARGET_IP"
+    echo "如误操作，可执行回滚：/root/forward-rollback.sh"
+}
+
+add_single_proto() {
+    local proto="$1"
+
+    iptables -t nat -C PREROUTING -p "$proto" --dport "$SOURCE_PORT" \
+        -m comment --comment "$TAG single-$proto-$SOURCE_PORT-to-$TARGET_IP-$TARGET_PORT" \
+        -j DNAT --to-destination "$TARGET_IP:$TARGET_PORT" 2>/dev/null || \
+    iptables -t nat -A PREROUTING -p "$proto" --dport "$SOURCE_PORT" \
+        -m comment --comment "$TAG single-$proto-$SOURCE_PORT-to-$TARGET_IP-$TARGET_PORT" \
+        -j DNAT --to-destination "$TARGET_IP:$TARGET_PORT"
+
+    iptables -C FORWARD -p "$proto" -d "$TARGET_IP" --dport "$TARGET_PORT" \
+        -m comment --comment "$TAG forward-$proto-$TARGET_IP-$TARGET_PORT" \
+        -j ACCEPT 2>/dev/null || \
+    iptables -A FORWARD -p "$proto" -d "$TARGET_IP" --dport "$TARGET_PORT" \
+        -m comment --comment "$TAG forward-$proto-$TARGET_IP-$TARGET_PORT" \
+        -j ACCEPT
+}
+
+del_single_proto() {
+    local proto="$1"
+
+    iptables -t nat -D PREROUTING -p "$proto" --dport "$SOURCE_PORT" \
+        -m comment --comment "$TAG single-$proto-$SOURCE_PORT-to-$TARGET_IP-$TARGET_PORT" \
+        -j DNAT --to-destination "$TARGET_IP:$TARGET_PORT" 2>/dev/null || true
+
+    iptables -D FORWARD -p "$proto" -d "$TARGET_IP" --dport "$TARGET_PORT" \
+        -m comment --comment "$TAG forward-$proto-$TARGET_IP-$TARGET_PORT" \
+        -j ACCEPT 2>/dev/null || true
 }
 
 add_single() {
     valid_port "$SOURCE_PORT" || { echo "源端口不合法"; exit 1; }
     valid_port "$TARGET_PORT" || { echo "目标端口不合法"; exit 1; }
-    valid_proto "$PROTOCOL" || { echo "协议只能是 tcp/udp/all"; exit 1; }
 
+    SSH_PORT="$(detect_ssh_port)"
     if [ "$SOURCE_PORT" = "$SSH_PORT" ]; then
-        echo "拒绝：源端口是 SSH 保留端口 $SSH_PORT，避免把自己踢下线"
+        echo "拒绝：源端口 $SOURCE_PORT 是当前 SSH 端口，避免锁死"
         exit 1
     fi
 
+    backup_rules
     enable_forward
+    protect_ssh "$SSH_PORT"
 
-    local protos=()
     if [ "$PROTOCOL" = "all" ]; then
-        protos=("tcp" "udp")
+        add_single_proto tcp
+        add_single_proto udp
     else
-        protos=("$PROTOCOL")
+        add_single_proto "$PROTOCOL"
     fi
 
-    for proto in "${protos[@]}"; do
-        if is_ipv6 "$TARGET_IP"; then
-            add_one_proto_v6 "$proto"
-        else
-            add_one_proto_v4 "$proto"
-        fi
-    done
-
     add_masquerade
+    save_rules
+    echo "已添加单端口转发"
 }
 
 del_single() {
-    valid_port "$SOURCE_PORT" || { echo "源端口不合法"; exit 1; }
-    valid_port "$TARGET_PORT" || { echo "目标端口不合法"; exit 1; }
-    valid_proto "$PROTOCOL" || { echo "协议只能是 tcp/udp/all"; exit 1; }
-
-    local protos=()
     if [ "$PROTOCOL" = "all" ]; then
-        protos=("tcp" "udp")
+        del_single_proto tcp
+        del_single_proto udp
     else
-        protos=("$PROTOCOL")
+        del_single_proto "$PROTOCOL"
     fi
 
-    for proto in "${protos[@]}"; do
-        if is_ipv6 "$TARGET_IP"; then
-            del_one_proto_v6 "$proto"
-        else
-            del_one_proto_v4 "$proto"
-        fi
-    done
-}
-
-add_all_forward() {
-    [ -n "$TARGET_IP" ] || usage
-    valid_port "$SSH_PORT" || { echo "SSH 端口不合法"; exit 1; }
-
-    if is_ipv6 "$TARGET_IP"; then
-        echo "全端口模式暂建议 IPv4 使用，IPv6 请用单端口模式"
-        exit 1
-    fi
-
-    enable_forward
-
-    iptables -t nat -C PREROUTING -p tcp ! --dport "$SSH_PORT" \
-        -m comment --comment "$SCRIPT_TAG all-tcp except-ssh-$SSH_PORT" \
-        -j DNAT --to-destination "$TARGET_IP" 2>/dev/null || \
-    iptables -t nat -A PREROUTING -p tcp ! --dport "$SSH_PORT" \
-        -m comment --comment "$SCRIPT_TAG all-tcp except-ssh-$SSH_PORT" \
-        -j DNAT --to-destination "$TARGET_IP"
-
-    iptables -t nat -C PREROUTING -p udp \
-        -m comment --comment "$SCRIPT_TAG all-udp" \
-        -j DNAT --to-destination "$TARGET_IP" 2>/dev/null || \
-    iptables -t nat -A PREROUTING -p udp \
-        -m comment --comment "$SCRIPT_TAG all-udp" \
-        -j DNAT --to-destination "$TARGET_IP"
-
-    iptables -C FORWARD -d "$TARGET_IP" \
-        -m comment --comment "$SCRIPT_TAG all-forward" \
-        -j ACCEPT 2>/dev/null || \
-    iptables -A FORWARD -d "$TARGET_IP" \
-        -m comment --comment "$SCRIPT_TAG all-forward" \
-        -j ACCEPT
-
-    add_masquerade
-
-    echo "已开启全端口转发："
-    echo "  保留本机 SSH: $SSH_PORT"
-    echo "  其它 TCP/UDP -> $TARGET_IP"
+    save_rules
+    echo "已删除单端口转发"
 }
 
 list_rules() {
-    echo "===== IPv4 NAT 规则 ====="
-    iptables -t nat -L -n -v --line-numbers | grep -E "$SCRIPT_TAG|DNAT|MASQUERADE" || true
+    echo "===== NAT ====="
+    iptables -t nat -L -n -v --line-numbers | grep -E "$TAG|DNAT|MASQUERADE|RETURN" || true
     echo
-    echo "===== IPv4 FORWARD 规则 ====="
-    iptables -L FORWARD -n -v --line-numbers | grep -E "$SCRIPT_TAG|ACCEPT" || true
-
-    if cmd_exists ip6tables; then
-        echo
-        echo "===== IPv6 NAT 规则 ====="
-        ip6tables -t nat -L -n -v --line-numbers 2>/dev/null | grep -E "$SCRIPT_TAG|DNAT|MASQUERADE" || true
-        echo
-        echo "===== IPv6 FORWARD 规则 ====="
-        ip6tables -L FORWARD -n -v --line-numbers 2>/dev/null | grep -E "$SCRIPT_TAG|ACCEPT" || true
-    fi
-}
-
-flush_chain_rules() {
-    local bin="$1"
-    local table="$2"
-    local chain="$3"
-
-    while "$bin" ${table:+-t "$table"} -S "$chain" 2>/dev/null | grep -q "$SCRIPT_TAG"; do
-        local rule
-        rule=$("$bin" ${table:+-t "$table"} -S "$chain" | grep "$SCRIPT_TAG" | head -n1 | sed 's/^-A/-D/')
-        "$bin" ${table:+-t "$table"} $rule || true
-    done
+    echo "===== FORWARD ====="
+    iptables -L FORWARD -n -v --line-numbers | grep -E "$TAG|ACCEPT" || true
+    echo
+    echo "===== INPUT ====="
+    iptables -L INPUT -n -v --line-numbers | grep -E "$TAG|ACCEPT" || true
 }
 
 flush_rules() {
-    echo "清理本脚本创建的规则..."
+    backup_rules
 
-    flush_chain_rules iptables nat PREROUTING
-    flush_chain_rules iptables nat POSTROUTING
-    flush_chain_rules iptables "" FORWARD
+    for chain in PREROUTING POSTROUTING; do
+        while iptables -t nat -S "$chain" | grep -q "$TAG"; do
+            rule=$(iptables -t nat -S "$chain" | grep "$TAG" | head -n1 | sed 's/^-A/-D/')
+            iptables -t nat $rule || true
+        done
+    done
 
-    if cmd_exists ip6tables; then
-        flush_chain_rules ip6tables nat PREROUTING || true
-        flush_chain_rules ip6tables nat POSTROUTING || true
-        flush_chain_rules ip6tables "" FORWARD || true
-    fi
+    for chain in FORWARD INPUT; do
+        while iptables -S "$chain" | grep -q "$TAG"; do
+            rule=$(iptables -S "$chain" | grep "$TAG" | head -n1 | sed 's/^-A/-D/')
+            iptables $rule || true
+        done
+    done
 
-    echo "清理完成"
+    save_rules
+    echo "已清理本脚本创建的规则"
 }
 
 save_rules() {
-    if cmd_exists netfilter-persistent; then
+    if command -v netfilter-persistent >/dev/null 2>&1; then
         netfilter-persistent save >/dev/null 2>&1 || true
-        echo "规则已通过 netfilter-persistent 保存"
-    elif [ -d /etc/iptables ] && cmd_exists iptables-save; then
+    elif [ -d /etc/iptables ] && command -v iptables-save >/dev/null 2>&1; then
         iptables-save > /etc/iptables/rules.v4
-        cmd_exists ip6tables-save && ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true
-        echo "规则已保存到 /etc/iptables/rules.v4"
-    elif cmd_exists service; then
+    elif command -v service >/dev/null 2>&1; then
         service iptables save >/dev/null 2>&1 || true
-        service ip6tables save >/dev/null 2>&1 || true
-        echo "已尝试通过 service iptables save 保存"
-    else
-        echo "提醒：未检测到持久化工具，重启后规则可能丢失"
-        echo "Debian/Ubuntu 可安装：apt install -y iptables-persistent"
-        echo "CentOS/Rocky 可安装：yum install -y iptables-services"
     fi
 }
 
-need_root
-ensure_tools
-ensure_docker_user_chain
-
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --all)
+            ACTION="all"
+            shift
+            ;;
         -a)
             ACTION="add"
             shift
@@ -378,13 +309,8 @@ while [[ $# -gt 0 ]]; do
             PROTOCOL="${2:-tcp}"
             shift 2
             ;;
-        --all)
-            ALL_MODE="true"
-            ACTION="all"
-            shift
-            ;;
         --ssh-port)
-            SSH_PORT="${2:-22}"
+            SSH_PORT="${2:-}"
             shift 2
             ;;
         --list)
@@ -393,7 +319,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --flush)
             flush_rules
-            save_rules
             exit 0
             ;;
         -h|--help)
@@ -407,19 +332,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$ACTION" in
+    all)
+        add_all
+        ;;
     add)
         [ -n "$SOURCE_PORT" ] && [ -n "$TARGET_IP" ] && [ -n "$TARGET_PORT" ] || usage
         add_single
-        save_rules
         ;;
     del)
         [ -n "$SOURCE_PORT" ] && [ -n "$TARGET_IP" ] && [ -n "$TARGET_PORT" ] || usage
         del_single
-        save_rules
-        ;;
-    all)
-        add_all_forward
-        save_rules
         ;;
     *)
         usage
