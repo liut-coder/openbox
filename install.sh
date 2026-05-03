@@ -182,28 +182,28 @@ uninstall_target() {
 
 show_list() {
     cat <<EOF
-可安装目标:
-  codex-switch    安装 codex-switch / sw
-  claude-switch   安装 claude-switch / cw
-  caddy-manager   安装 caddy-manager / cm
-  all             安装全部脚本
+可用工具:
+  codex-switch   安装 Codex 配置切换工具（命令: codex-switch / sw）
+  claude-switch  安装 Claude 配置切换工具（命令: claude-switch / cw）
+  caddy-manager  安装 Caddy 反代管理工具（命令: caddy-manager / cm）
+  all            安装全部工具
 EOF
 }
 
 show_help() {
     cat <<EOF
-openbox 通用安装器
+openbox 中文工具箱安装器
 
 用法:
-  bash install.sh <target>
+  bash install.sh <工具名>
   bash install.sh --list
-  bash install.sh --uninstall <target>
+  bash install.sh --uninstall <工具名>
 
-目标:
-  codex-switch
-  claude-switch
-  caddy-manager
-  all
+可用工具:
+  codex-switch   Codex 中转 / 配置切换工具
+  claude-switch  Claude Code / 网关切换工具
+  caddy-manager  Caddy 反代管理工具
+  all            安装全部工具
 
 环境变量:
   TARGET_DIR               安装目录，默认 /usr/local/bin
@@ -219,22 +219,26 @@ EOF
 
 show_menu() {
     cat <<'EOF'
-请选择要安装的脚本:
-  1) codex-switch
-  2) claude-switch
-  3) caddy-manager
-  4) all
-  0) 退出
+========================================
+        openbox 中文工具箱安装器
+========================================
+  1. 安装 Codex 配置切换      codex-switch / sw
+  2. 安装 Claude 配置切换     claude-switch / cw
+  3. 安装 Caddy 反代管理      caddy-manager / cm
+  4. 安装全部工具             all
+----------------------------------------
+  0. 退出
+========================================
 EOF
 
     local choice
-    read -r -p "输入编号: " choice
+    read -r -p "请输入编号或工具名: " choice
     case "$choice" in
-        1) install_codex_switch ;;
-        2) install_claude_switch ;;
-        3) install_caddy_manager ;;
-        4) install_all ;;
-        0) exit 0 ;;
+        1|codex-switch|codex|sw) install_codex_switch ;;
+        2|claude-switch|claude|cw) install_claude_switch ;;
+        3|caddy-manager|caddy|cm) install_caddy_manager ;;
+        4|all) install_all ;;
+        0|q|quit|exit) exit 0 ;;
         *) die "无效选择: $choice" ;;
     esac
 }

@@ -28,18 +28,18 @@ run_install() {
 
 show_help() {
     cat <<EOF
-openbox 统一入口
+openbox 工具箱入口
 
 用法:
   bash <(curl -fsSL $DEFAULT_BASE_URL)
-  bash <(curl -fsSL $DEFAULT_BASE_URL) <target>
+  bash <(curl -fsSL $DEFAULT_BASE_URL) <工具名>
   bash <(curl -fsSL $DEFAULT_BASE_URL) --list
 
-目标:
-  codex-switch
-  claude-switch
-  caddy-manager
-  all
+可用工具:
+  codex-switch   Codex 中转 / 配置切换工具
+  claude-switch  Claude Code / 网关切换工具
+  caddy-manager  Caddy 反代管理工具
+  all            安装全部工具
 
 示例:
   bash <(curl -fsSL $DEFAULT_BASE_URL) codex-switch
@@ -48,31 +48,35 @@ openbox 统一入口
   bash <(curl -fsSL $DEFAULT_BASE_URL) all
 
 说明:
-  - 交互式终端下，不带参数会显示选择菜单
+  - 交互式终端下，不带参数会显示中文工具箱菜单
   - 非交互环境下，不带参数会显示本帮助
-  - 传入目标后会转交给 install.sh
-  - 也可以直接使用: bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) <target>
+  - 传入工具名后会转交给 install.sh
+  - 也可以直接使用: bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) <工具名>
 EOF
 }
 
 show_menu() {
     cat <<'EOF'
-请选择要安装的脚本:
-  1) codex-switch
-  2) claude-switch
-  3) caddy-manager
-  4) all
-  0) 退出
+========================================
+          openbox 中文工具箱
+========================================
+  1. Codex 配置切换        codex-switch / sw
+  2. Claude 配置切换       claude-switch / cw
+  3. Caddy 反代管理        caddy-manager / cm
+  4. 安装全部工具          all
+----------------------------------------
+  0. 退出
+========================================
 EOF
 
     local choice
-    read -r -p "输入编号: " choice
+    read -r -p "请输入编号或工具名: " choice
     case "$choice" in
-        1) run_install codex-switch ;;
-        2) run_install claude-switch ;;
-        3) run_install caddy-manager ;;
-        4) run_install all ;;
-        0) exit 0 ;;
+        1|codex-switch|codex|sw) run_install codex-switch ;;
+        2|claude-switch|claude|cw) run_install claude-switch ;;
+        3|caddy-manager|caddy|cm) run_install caddy-manager ;;
+        4|all) run_install all ;;
+        0|q|quit|exit) exit 0 ;;
         *) die "无效选择: $choice" ;;
     esac
 }
