@@ -11,6 +11,8 @@ PROTOCOL="tcp"
 
 usage() {
 cat <<USAGE
+安全转发工具
+
 用法:
   全端口转发，自动保护 SSH:
     $0 --all -t 目标IP
@@ -29,9 +31,165 @@ cat <<USAGE
 
   清理本脚本规则:
     $0 --flush
+
+说明:
+  - 直接运行 $0 可进入交互式菜单
+  - 安装后支持命令别名: forward / fw
+  - 默认会自动识别并保护当前 SSH 端口
+  - 执行前会备份 iptables 规则，并生成 /root/forward-rollback.sh
 USAGE
 exit 1
 }
+
+prompt_required() {
+    local label="$1"
+    local value=""
+    while true; do
+        read -r -p "$label" value
+        if [ -n "$value" ]; then
+            printf '%s\n' "$value"
+            return 0
+        fi
+        echo "输入不能为空，请重试。"
+    done
+}
+
+choose_protocol() {
+    local choice
+    while true; do
+        cat <<'EOF'
+请选择协议:
+  1. tcp
+  2. udp
+  3. all
+EOF
+        read -r -p "输入编号或协议名: " choice
+        case "$choice" in
+            1|tcp) printf 'tcp\n'; return 0 ;;
+            2|udp) printf 'udp\n'; return 0 ;;
+            3|all) printf 'all\n'; return 0 ;;
+            *) echo "无效选择: $choice" ;;
+        esac
+    done
+}
+
+interactive_menu() {
+    local choice
+
+    while true; do
+        cat <<'EOF'
+========================================
+            Forward 安全转发工具
+========================================
+  1. 全端口转发（自动保护 SSH）
+  2. 单端口添加
+  3. 单端口删除
+  4. 查看规则
+  5. 清理本脚本规则
+  0. 退出
+========================================
+EOF
+        read -r -p "请输入编号: " choice
+        case "$choice" in
+            1)
+                ACTION="all"
+                TARGET_IP="$(prompt_required '目标 IP: ')"
+                read -r -p "SSH 端口（留空自动识别）: " SSH_PORT
+                break
+                ;;
+            2)
+                ACTION="add"
+                SOURCE_PORT="$(prompt_required '源端口: ')"
+                TARGET_IP="$(prompt_required '目标 IP: ')"
+                TARGET_PORT="$(prompt_required '目标端口: ')"
+                PROTOCOL="$(choose_protocol)"
+                read -r -p "SSH 端口（留空自动识别）: " SSH_PORT
+                break
+                ;;
+            3)
+                ACTION="del"
+                SOURCE_PORT="$(prompt_required '源端口: ')"
+                TARGET_IP="$(prompt_required '目标 IP: ')"
+                TARGET_PORT="$(prompt_required '目标端口: ')"
+                PROTOCOL="$(choose_protocol)"
+                break
+                ;;
+            4)
+                list_rules
+                exit 0
+                ;;
+            5)
+                read -r -p "确认清理本脚本创建的规则？[y/N]: " choice
+                case "$choice" in
+                    y|Y|yes|YES)
+                        flush_rules
+                        exit 0
+                        ;;
+                    *)
+                        echo "已取消"
+                        ;;
+                esac
+                ;;
+            0|q|quit|exit)
+                exit 0
+                ;;
+            *)
+                echo "无效选择: $choice"
+                ;;
+        esac
+    done
+}
+
+sanitize_optional_ssh_port() {
+    if [ -n "$SSH_PORT" ]; then
+        valid_port "$SSH_PORT" || {
+            echo "SSH 端口不合法：$SSH_PORT"
+            exit 1
+        }
+    fi
+}
+
+sanitize_protocol() {
+    case "$PROTOCOL" in
+        tcp|udp|all) ;;
+        *)
+            echo "协议只能是 tcp / udp / all"
+            exit 1
+            ;;
+    esac
+}
+
+sanitize_single_ports() {
+    valid_port "$SOURCE_PORT" || { echo "源端口不合法"; exit 1; }
+    valid_port "$TARGET_PORT" || { echo "目标端口不合法"; exit 1; }
+}
+
+sanitize_target_ip() {
+    [ -n "$TARGET_IP" ] || { echo "目标 IP 不能为空"; exit 1; }
+}
+
+maybe_interactive_entry() {
+    if [[ $# -eq 0 ]]; then
+        if [[ -t 0 && -t 1 ]]; then
+            interactive_menu
+        else
+            usage
+        fi
+    fi
+}
+
+maybe_interactive_entry "$@"
+
+sanitize_optional_ssh_port
+sanitize_protocol
+
+if [ -n "$SOURCE_PORT" ] || [ -n "$TARGET_PORT" ]; then
+    sanitize_single_ports
+fi
+
+if [ -n "$TARGET_IP" ]; then
+    sanitize_target_ip
+fi
 
 [ "$(id -u)" = "0" ] || { echo "请用 root 运行"; exit 1; }
 

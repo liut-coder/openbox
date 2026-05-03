@@ -43,7 +43,7 @@ openbox 中文工具箱入口
 
   转发 / 反代类
     caddy-manager  Caddy 反代管理工具
-    forward        通用端口转发工具
+    forward        安全转发工具（支持交互菜单，命令: forward / fw）
 
   其他
     all            安装全部工具
@@ -74,7 +74,7 @@ show_menu() {
 
  转发 / 反代类
   3. Caddy 反代管理           caddy-manager / cm
-  4. 通用端口转发             forward
+  4. 安全端口转发             forward / fw
 
  其他
   9. 安装全部工具             all
@@ -89,7 +89,7 @@ EOF
         1|codex-switch|codex|sw) run_install codex-switch ;;
         2|claude-switch|claude|cw) run_install claude-switch ;;
         3|caddy-manager|caddy|cm) run_install caddy-manager ;;
-        4|forward) run_install forward ;;
+        4|forward|fw) run_install forward ;;
         9|all) run_install all ;;
         0|q|quit|exit) exit 0 ;;
         *) die "无效选择: $choice" ;;
@@ -111,7 +111,7 @@ main() {
         --list|-l)
             run_install --list
             ;;
-        codex-switch|codex|sw|claude-switch|claude|cw|caddy-manager|caddy|cm|forward|all)
+        codex-switch|codex|sw|claude-switch|claude|cw|caddy-manager|caddy|cm|forward|fw|all)
             run_install "$@"
             ;;
         *)

@@ -156,11 +156,13 @@ install_forward_tool() {
 
     log "安装 Forward 转发工具..."
     install_file "$source_script" "$TARGET_DIR/forward"
+    install_file "$source_script" "$TARGET_DIR/fw"
 
     log "安装完成:"
     log "  $TARGET_DIR/forward"
+    log "  $TARGET_DIR/fw"
     log ""
-    log "启动: forward --help"
+    log "启动: fw"
 }
 
 install_all() {
@@ -188,8 +190,8 @@ uninstall_target() {
             log "已卸载 caddy-manager"
             ;;
         forward)
-            run_privileged rm -f "$TARGET_DIR/forward"
-            log "已卸载 forward"
+            run_privileged rm -f "$TARGET_DIR/forward" "$TARGET_DIR/fw"
+            log "已卸载 forward / fw"
             ;;
         all)
             uninstall_target codex-switch
@@ -209,7 +211,7 @@ show_list() {
   codex-switch   安装 Codex 配置切换工具（命令: codex-switch / sw）
   claude-switch  安装 Claude 配置切换工具（命令: claude-switch / cw）
   caddy-manager  安装 Caddy 反代管理工具（命令: caddy-manager / cm）
-  forward        安装通用端口转发工具（命令: forward）
+  forward        安装安全转发工具（命令: forward / fw）
   all            安装全部工具
 EOF
 }
@@ -230,7 +232,7 @@ openbox 中文工具箱安装器
 
   转发 / 反代类
     caddy-manager  Caddy 反代管理工具
-    forward        通用端口转发工具
+    forward        安全转发工具（支持交互菜单，命令: forward / fw）
 
   其他
     all            安装全部工具
@@ -259,7 +261,7 @@ show_menu() {
 
  转发 / 反代类
   3. 安装 Caddy 反代管理      caddy-manager / cm
-  4. 安装通用端口转发         forward
+  4. 安装安全端口转发         forward / fw
 
  其他
   9. 安装全部工具             all
