@@ -46,6 +46,7 @@ openbox 中文工具箱入口
     forward        安全转发工具（支持交互菜单，命令: forward / fw）
 
   其他
+    proxy-setup    下载代理配置工具（命令: proxy-setup / proxy）
     all            安装全部工具
 
 示例:
@@ -53,6 +54,7 @@ openbox 中文工具箱入口
   bash <(curl -fsSL $DEFAULT_BASE_URL) claude-switch
   bash <(curl -fsSL $DEFAULT_BASE_URL) caddy-manager
   bash <(curl -fsSL $DEFAULT_BASE_URL) forward
+  bash <(curl -fsSL $DEFAULT_BASE_URL) proxy-setup
   bash <(curl -fsSL $DEFAULT_BASE_URL) all
 
 说明:
@@ -77,6 +79,7 @@ show_menu() {
   4. 安全端口转发             forward / fw
 
  其他
+  5. 代理配置工具           proxy-setup / proxy
   9. 安装全部工具             all
 ------------------------------------------------
   0. 退出
@@ -90,6 +93,7 @@ EOF
         2|claude-switch|claude|cw) run_install claude-switch ;;
         3|caddy-manager|caddy|cm) run_install caddy-manager ;;
         4|forward|fw) run_install forward ;;
+        5|proxy-setup|proxy) run_install proxy-setup ;;
         9|all) run_install all ;;
         0|q|quit|exit) exit 0 ;;
         *) die "无效选择: $choice" ;;
@@ -111,7 +115,7 @@ main() {
         --list|-l)
             run_install --list
             ;;
-        codex-switch|codex|sw|claude-switch|claude|cw|caddy-manager|caddy|cm|forward|fw|all)
+        codex-switch|codex|sw|claude-switch|claude|cw|caddy-manager|caddy|cm|forward|fw|proxy-setup|proxy|all)
             run_install "$@"
             ;;
         *)
