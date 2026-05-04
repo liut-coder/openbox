@@ -165,6 +165,26 @@ install_forward_tool() {
     log "启动: fw"
 }
 
+install_proxy_setup() {
+    local source_script
+
+    ensure_commands curl
+    source_script="$(resolve_source "proxy-setup.sh")"
+
+    log "安装 proxy-setup 代理配置工具..."
+    install_file "$source_script" "$TARGET_DIR/proxy-setup"
+    install_file "$source_script" "$TARGET_DIR/proxy"
+
+    log "安装完成:"
+    log "  $TARGET_DIR/proxy-setup"
+    log "  $TARGET_DIR/proxy"
+    log ""
+    log "用法:"
+    log "  proxy-setup on     启用代理"
+    log "  proxy-setup off    禁用代理"
+    log "  proxy-setup status 查看状态"
+}
+
 install_all() {
     install_codex_switch
     echo ""
@@ -173,6 +193,8 @@ install_all() {
     install_caddy_manager
     echo ""
     install_forward_tool
+    echo ""
+    install_proxy_setup
 }
 
 uninstall_target() {
@@ -198,6 +220,11 @@ uninstall_target() {
             uninstall_target claude-switch
             uninstall_target caddy-manager
             uninstall_target forward
+            uninstall_target proxy-setup
+            ;;
+        proxy-setup)
+            run_privileged rm -f "$TARGET_DIR/proxy-setup" "$TARGET_DIR/proxy"
+            log "已卸载 proxy-setup / proxy"
             ;;
         *)
             die "未知卸载目标: $1"
@@ -212,6 +239,7 @@ show_list() {
   claude-switch  安装 Claude 配置切换工具（命令: claude-switch / cw）
   caddy-manager  安装 Caddy 反代管理工具（命令: caddy-manager / cm）
   forward        安装安全转发工具（命令: forward / fw）
+  proxy-setup    安装代理配置工具（命令: proxy-setup / proxy）
   all            安装全部工具
 EOF
 }
@@ -235,6 +263,7 @@ openbox 中文工具箱安装器
     forward        安全转发工具（支持交互菜单，命令: forward / fw）
 
   其他
+    proxy-setup    下载代理配置工具（命令: proxy-setup / proxy）
     all            安装全部工具
 
 环境变量:
@@ -246,6 +275,7 @@ openbox 中文工具箱安装器
   bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) claude-switch
   bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) caddy-manager
   bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) forward
+  bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) proxy-setup
   bash <(curl -fsSL $DEFAULT_BASE_URL/install.sh) all
 EOF
 }
@@ -264,6 +294,7 @@ show_menu() {
   4. 安装安全端口转发         forward / fw
 
  其他
+  5. 安装代理配置工具         proxy-setup / proxy
   9. 安装全部工具             all
 ------------------------------------------------
   0. 退出
@@ -277,6 +308,7 @@ EOF
         2|claude-switch|claude|cw) install_claude_switch ;;
         3|caddy-manager|caddy|cm) install_caddy_manager ;;
         4|forward) install_forward_tool ;;
+        5|proxy-setup|proxy) install_proxy_setup ;;
         9|all) install_all ;;
         0|q|quit|exit) exit 0 ;;
         *) die "无效选择: $choice" ;;
@@ -298,6 +330,9 @@ main() {
             ;;
         forward)
             install_forward_tool
+            ;;
+        proxy-setup|proxy)
+            install_proxy_setup
             ;;
         all)
             install_all
