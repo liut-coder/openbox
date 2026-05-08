@@ -31,6 +31,12 @@ SCRIPTS=(
   "unlock-test|bench|流媒体解锁测试|bench/unlock-test.sh|unlock-test|unlock"
   "return-route|bench|回程路由测试|bench/return-route.sh|return-route|route"
   "nws|bench|nws 综合测速|bench/nws.sh|nws|nws"
+  # system
+  "system-info|system|系统信息汇总|system/system-info.sh|system-info|sysinfo"
+  "service-manager|system|systemd 服务管理|system/service-manager.sh|service-manager|svc"
+  "swap-manager|system|Swap 管理|system/swap-manager.sh|swap-manager|swap"
+  "zram-manager|system|ZRAM 状态查看|system/zram-manager.sh|zram-manager|zram"
+  "disk-usage|system|目录占用快速查看|system/disk-usage.sh|disk-usage|dux"
   # agent
   "agent-status|agent|常用状态面板|agent/agent-status.sh|agent-status|ast"
   "agent-restart|agent|常用服务重启入口|agent/agent-restart.sh|agent-restart|ars"

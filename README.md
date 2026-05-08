@@ -56,6 +56,20 @@ bash <(curl -fsSL https://sh.misk.cc) tools
 bash <(curl -fsSL https://sh.misk.cc) bench
 ```
 
+### system — 系统管理
+
+| 脚本 | 命令 | 说明 |
+|------|------|------|
+| `system-info` | `sysinfo` / `system-info` | 系统信息汇总 |
+| `service-manager` | `svc` / `service-manager` | systemd 服务管理 |
+| `swap-manager` | `swap` / `swap-manager` | Swap 管理 |
+| `zram-manager` | `zram` / `zram-manager` | ZRAM 状态查看 |
+| `disk-usage` | `dux` / `disk-usage` | 目录占用快速查看 |
+
+```bash
+bash <(curl -fsSL https://sh.misk.cc) system
+```
+
 ### agent — 助手常用脚本
 
 | 脚本 | 命令 | 说明 |
