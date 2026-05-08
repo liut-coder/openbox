@@ -16,71 +16,22 @@ bash <(curl -fsSL https://sh.misk.cc) --list
 
 ## 分类
 
-### proxy — 代理 / 转发 / 反代
+交互菜单里选择分类后，会先进入二级菜单，
+可再选单个脚本或整类安装。
 
-| 脚本 | 命令 | 说明 |
-|------|------|------|
-| `caddy-manager` | `cm` / `caddy-manager` | Caddy 交互式反代管理 |
-| `forward` | `fw` / `forward` | iptables 安全端口转发 |
-
-```bash
-bash <(curl -fsSL https://sh.misk.cc) proxy
-```
-
-### tools — 开发工具 / 切换器
-
-| 脚本 | 命令 | 说明 |
-|------|------|------|
-| `codex-switch` | `sw` / `codex-switch` | Codex CLI 多配置切换 |
-| `claude-switch` | `cw` / `claude-switch` | Claude Code 网关切换 |
-| `proxy-setup` | `proxy` / `proxy-setup` | 代理环境一键配置 |
-
-```bash
-bash <(curl -fsSL https://sh.misk.cc) tools
-```
-
-### bench — 服务器测试
-
-| 脚本 | 命令 | 说明 |
-|------|------|------|
-| `nodequality` | `nq` / `nodequality` | NodeQuality 服务器质量测试 |
-| `fusion-bench` | `fjg` / `fusion-bench` | 融合怪 VPS 综合测试 |
-| `yabs` | `yabs` | YABS 服务器性能测试 |
-| `bench-sh` | `bench` / `bench-sh` | bench.sh 基础性能测试 |
-| `ip-quality` | `ipq` / `ip-quality` | Check.Place IP 质量测试 |
-| `unlock-test` | `unlock` / `unlock-test` | 流媒体解锁测试 |
-| `return-route` | `route` / `return-route` | 回程路由测试 |
-| `nws` | `nws` | nws 综合测速 |
+命令行直接带分类参数时，仍按旧行为安装整类：
 
 ```bash
 bash <(curl -fsSL https://sh.misk.cc) bench
 ```
 
-### system — 系统管理
+当前分类：
 
-| 脚本 | 命令 | 说明 |
-|------|------|------|
-| `system-info` | `sysinfo` / `system-info` | 系统信息汇总 |
-| `service-manager` | `svc` / `service-manager` | systemd 服务管理 |
-| `swap-manager` | `swap` / `swap-manager` | Swap 管理 |
-| `zram-manager` | `zram` / `zram-manager` | ZRAM 状态查看 |
-| `disk-usage` | `dux` / `disk-usage` | 目录占用快速查看 |
-
-```bash
-bash <(curl -fsSL https://sh.misk.cc) system
-```
-
-### agent — 助手常用脚本
-
-| 脚本 | 命令 | 说明 |
-|------|------|------|
-| `agent-status` | `ast` / `agent-status` | 快速状态面板 |
-| `agent-restart` | `ars` / `agent-restart` | 常用服务重启入口 |
-| `agent-sync` | `asg` / `agent-sync` | 刷新 / 同步入口 |
-
-```bash
-bash <(curl -fsSL https://sh.misk.cc) agent
-```
+- `proxy`：代理 / 转发 / 反代
+- `tools`：开发工具 / 切换器
+- `bench`：服务器测试
+- `system`：系统管理
+- `agent`：助手常用脚本
 
 ### 规划中
 
