@@ -32,38 +32,43 @@ CYAN='\033[0;36m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 
 show_banner() {
     echo -e "${CYAN}"
-    echo "╔══════════════════════════════════╗"
-    echo "║       📦  Openbox 脚本中心       ║"
-    echo "╚══════════════════════════════════╝"
+    cat <<'EOF'
+╔════════════════════════════════════╗
+║        📦  Openbox 脚本中心        ║
+╠════════════════════════════════════╣
+║  输入编号进入分类，按 q 退出        ║
+╚════════════════════════════════════╝
+EOF
     echo -e "${NC}"
 }
 
 show_menu() {
     show_banner
-    echo -e "${YELLOW}分类:${NC}"
-    echo "  1) proxy      代理/转发/反代"
-    echo "  2) tools      开发工具/切换器"
-    echo "  3) bench      服务器测试"
-    echo "  4) system     系统管理"
-    echo "  5) monitor    监控预警  (规划中)"
-    echo "  6) security   安全加固  (规划中)"
-    echo "  7) bootstrap  新机初始化 (规划中)"
-    echo "  8) backup     备份脚本  (规划中)"
-    echo "  9) agent      助手常用脚本 (沉淀中)"
+    echo -e "${YELLOW}分类${NC}"
+    echo "  1  proxy      代理 / 转发 / 反代"
+    echo "  2  tools      开发工具 / 切换器"
+    echo "  3  bench      服务器测试"
+    echo "  4  system     系统管理"
+    echo "  5  monitor    监控预警  · 规划中"
+    echo "  6  security   安全加固  · 规划中"
+    echo "  7  bootstrap  新机初始化 · 规划中"
+    echo "  8  backup     备份脚本  · 规划中"
+    echo "  9  agent      助手常用脚本"
     echo ""
-    echo "  i)  安装全部  (all)"
-    echo "  l)  查看完整列表  (--list)"
-    echo "  u)  卸载"
-    echo "  h)  帮助"
-    echo "  q)  退出"
+    echo -e "${YELLOW}快捷操作${NC}"
+    echo "  i  安装全部"
+    echo "  l  查看完整列表"
+    echo "  u  卸载脚本"
+    echo "  h  帮助信息"
+    echo "  q  退出"
     echo ""
-    echo -e "${GREEN}远程安装示例: bash <(curl -fsSL sh.misk.cc) <分类|脚本>${NC}"
+    echo -e "${GREEN}示例：bash <(curl -fsSL sh.misk.cc) bench${NC}"
     echo ""
 }
 
 while true; do
     show_menu
-    read -r -p "选择 > " choice
+    read -r -p "请选择 > " choice
 
     case "${choice,,}" in
         1|proxy)         bash "$INSTALL_CACHE" proxy ;;
