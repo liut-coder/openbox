@@ -45,6 +45,12 @@ bash <(curl -fsSL https://sh.misk.cc) tools
 |------|------|------|
 | `nodequality` | `nq` / `nodequality` | NodeQuality 服务器质量测试 |
 | `fusion-bench` | `fjg` / `fusion-bench` | 融合怪 VPS 综合测试 |
+| `yabs` | `yabs` | YABS 服务器性能测试 |
+| `bench-sh` | `bench` / `bench-sh` | bench.sh 基础性能测试 |
+| `ip-quality` | `ipq` / `ip-quality` | Check.Place IP 质量测试 |
+| `unlock-test` | `unlock` / `unlock-test` | 流媒体解锁测试 |
+| `return-route` | `route` / `return-route` | 回程路由测试 |
+| `nws` | `nws` | nws 综合测速 |
 
 ```bash
 bash <(curl -fsSL https://sh.misk.cc) bench

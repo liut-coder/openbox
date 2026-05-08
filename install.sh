@@ -25,6 +25,12 @@ SCRIPTS=(
   # bench
   "nodequality|bench|NodeQuality 服务器质量测试|bench/nodequality.sh|nodequality|nq"
   "fusion-bench|bench|融合怪 VPS 综合测试|bench/fusion-bench.sh|fusion-bench|fjg"
+  "yabs|bench|YABS 服务器性能测试|bench/yabs.sh|yabs|yabs"
+  "bench-sh|bench|bench.sh 基础性能测试|bench/bench-sh.sh|bench-sh|bench"
+  "ip-quality|bench|Check.Place IP 质量测试|bench/ip-quality.sh|ip-quality|ipq"
+  "unlock-test|bench|流媒体解锁测试|bench/unlock-test.sh|unlock-test|unlock"
+  "return-route|bench|回程路由测试|bench/return-route.sh|return-route|route"
+  "nws|bench|nws 综合测速|bench/nws.sh|nws|nws"
   # agent
   "agent-status|agent|常用状态面板|agent/agent-status.sh|agent-status|ast"
   "agent-restart|agent|常用服务重启入口|agent/agent-restart.sh|agent-restart|ars"
