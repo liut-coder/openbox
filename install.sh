@@ -22,6 +22,9 @@ SCRIPTS=(
   "codex-switch|tools|Codex CLI 多配置切换|tools/codex-switch.sh|codex-switch|sw"
   "claude-switch|tools|Claude Code 网关切换|tools/claude-switch.sh|claude-switch|cw"
   "proxy-setup|tools|代理环境一键配置|tools/proxy-setup.sh|proxy-setup|proxy"
+  # bench
+  "nodequality|bench|NodeQuality 服务器质量测试|bench/nodequality.sh|nodequality|nq"
+  "fusion-bench|bench|融合怪 VPS 综合测试|bench/fusion-bench.sh|fusion-bench|fjg"
   # agent
   "agent-status|agent|常用状态面板|agent/agent-status.sh|agent-status|ast"
   "agent-restart|agent|常用服务重启入口|agent/agent-restart.sh|agent-restart|ars"

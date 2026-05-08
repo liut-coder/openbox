@@ -43,11 +43,12 @@ show_menu() {
     echo -e "${YELLOW}分类:${NC}"
     echo "  1) proxy      代理/转发/反代"
     echo "  2) tools      开发工具/切换器"
-    echo "  3) monitor    监控预警  (规划中)"
-    echo "  4) security   安全加固  (规划中)"
-    echo "  5) bootstrap  新机初始化 (规划中)"
-    echo "  6) backup     备份脚本  (规划中)"
-    echo "  7) agent      助手常用脚本 (沉淀中)"
+    echo "  3) bench      服务器测试"
+    echo "  4) monitor    监控预警  (规划中)"
+    echo "  5) security   安全加固  (规划中)"
+    echo "  6) bootstrap  新机初始化 (规划中)"
+    echo "  7) backup     备份脚本  (规划中)"
+    echo "  8) agent      助手常用脚本 (沉淀中)"
     echo ""
     echo "  i)  安装全部  (all)"
     echo "  l)  查看完整列表  (--list)"
@@ -66,11 +67,12 @@ while true; do
     case "${choice,,}" in
         1|proxy)         bash "$INSTALL_CACHE" proxy ;;
         2|tools)         bash "$INSTALL_CACHE" tools ;;
-        3|monitor)       echo "monitor 分类暂未上线，请期待后续更新。" ;;
-        4|security)      echo "security 分类暂未上线，请期待后续更新。" ;;
-        5|bootstrap)     echo "bootstrap 分类暂未上线，请期待后续更新。" ;;
-        6|backup)        echo "backup 分类暂未上线，请期待后续更新。" ;;
-        7|agent)         bash "$INSTALL_CACHE" agent ;;
+        3|bench)         bash "$INSTALL_CACHE" bench ;;
+        4|monitor)       echo "monitor 分类暂未上线，请期待后续更新。" ;;
+        5|security)      echo "security 分类暂未上线，请期待后续更新。" ;;
+        6|bootstrap)     echo "bootstrap 分类暂未上线，请期待后续更新。" ;;
+        7|backup)        echo "backup 分类暂未上线，请期待后续更新。" ;;
+        8|agent)         bash "$INSTALL_CACHE" agent ;;
         i|all)           bash "$INSTALL_CACHE" all ;;
         l|list)          bash "$INSTALL_CACHE" --list ;;
         u|uninstall)

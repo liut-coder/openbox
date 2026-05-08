@@ -39,6 +39,17 @@ bash <(curl -fsSL https://sh.misk.cc) proxy
 bash <(curl -fsSL https://sh.misk.cc) tools
 ```
 
+### bench — 服务器测试
+
+| 脚本 | 命令 | 说明 |
+|------|------|------|
+| `nodequality` | `nq` / `nodequality` | NodeQuality 服务器质量测试 |
+| `fusion-bench` | `fjg` / `fusion-bench` | 融合怪 VPS 综合测试 |
+
+```bash
+bash <(curl -fsSL https://sh.misk.cc) bench
+```
+
 ### agent — 助手常用脚本
 
 | 脚本 | 命令 | 说明 |
