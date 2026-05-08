@@ -22,6 +22,10 @@ SCRIPTS=(
   "codex-switch|tools|Codex CLI 多配置切换|tools/codex-switch.sh|codex-switch|sw"
   "claude-switch|tools|Claude Code 网关切换|tools/claude-switch.sh|claude-switch|cw"
   "proxy-setup|tools|代理环境一键配置|tools/proxy-setup.sh|proxy-setup|proxy"
+  # agent
+  "agent-status|agent|常用状态面板|agent/agent-status.sh|agent-status|ast"
+  "agent-restart|agent|常用服务重启入口|agent/agent-restart.sh|agent-restart|ars"
+  "agent-sync|agent|常用刷新同步入口|agent/agent-sync.sh|agent-sync|asg"
 )
 # ──────────────────────────────────────────────────────────────────
 
@@ -141,6 +145,7 @@ install_category() {
         install_one "$entry"; found=1
     done
     [[ $found -eq 0 ]] && die "没有找到分类: $cat"
+    return 0
 }
 
 install_all() {

@@ -39,6 +39,18 @@ bash <(curl -fsSL https://sh.misk.cc) proxy
 bash <(curl -fsSL https://sh.misk.cc) tools
 ```
 
+### agent — 助手常用脚本
+
+| 脚本 | 命令 | 说明 |
+|------|------|------|
+| `agent-status` | `ast` / `agent-status` | 快速状态面板 |
+| `agent-restart` | `ars` / `agent-restart` | 常用服务重启入口 |
+| `agent-sync` | `asg` / `agent-sync` | 刷新 / 同步入口 |
+
+```bash
+bash <(curl -fsSL https://sh.misk.cc) agent
+```
+
 ### 规划中
 
 | 分类 | 说明 |
