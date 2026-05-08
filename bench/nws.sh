@@ -16,7 +16,6 @@ usage() {
 
 示例:
   nws
-  nws
 EOF
 }
 
