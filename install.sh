@@ -155,6 +155,28 @@ install_one() {
     [[ -n "$alias" ]] && log " ✓ $TARGET_DIR/$alias"
 }
 
+run_installed_script() {
+    local entry="$1"; shift
+    local target; target="$(get_field "$entry" 5)"
+    local cmd="$TARGET_DIR/$target"
+    [[ -x "$cmd" ]] || die "安装后未找到可执行脚本: $cmd"
+    log "执行: $target $*"
+    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+        "$cmd" "$@"
+    else
+        has_cmd sudo || die "需要 root 或 sudo 执行: $target $*"
+        sudo \
+          MRA_TOKEN="${MRA_TOKEN:-}" \
+          MRA_CONTROL_URL="${MRA_CONTROL_URL:-}" \
+          MRA_NODE_ID="${MRA_NODE_ID:-}" \
+          MRA_INTERVAL="${MRA_INTERVAL:-}" \
+          TARGET="${TARGET:-}" \
+          SERVICE="${SERVICE:-}" \
+          ENV_FILE="${ENV_FILE:-}" \
+          "$cmd" "$@"
+    fi
+}
+
 install_category() {
     local cat="$1"; local found=0
     for entry in "${SCRIPTS[@]}"; do
@@ -256,5 +278,9 @@ case "${1:-}" in
         # single script (by name / alias / category/name)
         ENTRY="$(find_script "$Q")" || die "未找到: $1（用 --list 查看可用脚本）"
         install_one "$ENTRY"
+        if [[ $# -gt 1 ]]; then
+            shift
+            run_installed_script "$ENTRY" "$@"
+        fi
         ;;
 esac
