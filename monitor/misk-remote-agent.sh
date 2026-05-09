@@ -27,8 +27,41 @@ need_root() {
 
 has_cmd() { command -v "$1" >/dev/null 2>&1; }
 
+install_packages() {
+  local pkgs=("$@")
+  [[ ${#pkgs[@]} -gt 0 ]] || return 0
+  if has_cmd apt-get; then
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${pkgs[@]}"
+  elif has_cmd dnf; then
+    dnf install -y "${pkgs[@]}"
+  elif has_cmd yum; then
+    yum install -y "${pkgs[@]}"
+  elif has_cmd apk; then
+    apk add --no-cache "${pkgs[@]}"
+  elif has_cmd pacman; then
+    pacman -Sy --noconfirm "${pkgs[@]}"
+  else
+    echo "无法自动安装依赖: ${pkgs[*]}，请先手动安装 python3" >&2
+    return 1
+  fi
+}
+
+ensure_python3() {
+  if has_cmd python3; then
+    return 0
+  fi
+  echo "检测到 python3 未安装，正在自动安装..."
+  install_packages python3
+  if ! has_cmd python3; then
+    echo "python3 安装后仍不可用，请检查系统包管理器" >&2
+    exit 1
+  fi
+}
+
 install_agent() {
   need_root "$@"
+  ensure_python3
   mkdir -p "$(dirname "$TARGET")"
   cat > "$TARGET" <<'PY'
 #!/usr/bin/env python3
@@ -166,9 +199,12 @@ status_agent() {
   echo "目标: $TARGET"
   if [[ -x "$TARGET" ]]; then
     echo "状态: installed"
-    if has_cmd python3; then
-      python3 -m py_compile "$TARGET" && echo "语法: ok" || echo "语法: failed"
+    if ! has_cmd python3; then
+      echo "依赖: missing python3"
+      echo "修复: sudo misk-remote-agent install"
+      return 1
     fi
+    python3 -m py_compile "$TARGET" && echo "语法: ok" || echo "语法: failed"
     printf '{"action":"snapshot"}' | "$TARGET" | python3 -c 'import sys,json; d=json.load(sys.stdin); print("snapshot:", "ok" if d.get("ok") else d)' 2>/dev/null || true
   else
     echo "状态: not installed"
@@ -180,7 +216,7 @@ show_help() {
 用法: misk-remote-agent <命令>
 
 命令:
-  install      安装远程安全运维 agent 到 $TARGET
+  install      安装远程安全运维 agent 到 $TARGET，会自动补 python3
   status       查看安装状态并做 snapshot 自检
   uninstall    卸载 agent
   help         显示帮助
