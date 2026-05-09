@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
 # misk-remote-agent — 安装 Misk 远程安全运维 agent
 #
-# 用途：
-#   在你授权的服务器上安装一个本地白名单执行器，供主控机通过 SSH 调用。
-#   它只支持安全动作：重启白名单服务/容器、安全磁盘清理、抓取现场。
+# 推荐一行上线：
+#   MRA_TOKEN=xxx bash <(curl -fsSL https://sh.misk.cc/install.sh) misk-remote-agent install
 #
-# 安装：
+# 或先安装包装器再安装：
 #   bash <(curl -fsSL https://sh.misk.cc/install.sh) misk-remote-agent
-#   sudo misk-remote-agent install
-#
-# 查看：
-#   misk-remote-agent status
-#   printf '{"action":"snapshot"}' | /usr/local/sbin/misk-remote-remediate-agent
+#   sudo MRA_TOKEN=xxx misk-remote-agent install
 
 set -euo pipefail
 
 TARGET="${TARGET:-/usr/local/sbin/misk-remote-remediate-agent}"
-SELF_WRAPPER="${SELF_WRAPPER:-/usr/local/bin/misk-remote-agent}"
+SERVICE="${SERVICE:-misk-remote-agent.service}"
+ENV_FILE="${ENV_FILE:-/etc/misk-remote-agent.env}"
+CONTROL_URL="${MRA_CONTROL_URL:-https://agent.misk.cc}"
+VERSION="0.2.0"
 
 need_root() {
   if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
@@ -48,43 +46,39 @@ install_packages() {
 }
 
 ensure_python3() {
-  if has_cmd python3; then
-    return 0
-  fi
+  if has_cmd python3; then return 0; fi
   echo "检测到 python3 未安装，正在自动安装..."
   install_packages python3
-  if ! has_cmd python3; then
-    echo "python3 安装后仍不可用，请检查系统包管理器" >&2
-    exit 1
-  fi
+  has_cmd python3 || { echo "python3 安装后仍不可用" >&2; exit 1; }
 }
 
-install_agent() {
-  need_root "$@"
-  ensure_python3
+json_escape() {
+  python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip(), ensure_ascii=False))'
+}
+
+write_agent() {
   mkdir -p "$(dirname "$TARGET")"
   cat > "$TARGET" <<'PY'
 #!/usr/bin/env python3
-"""Remote safe remediation agent for Misk-managed servers.
-
-Runs on each node. It reads a small action JSON from stdin and performs only
-explicitly allowed low-risk operations.
-
-Supported actions:
-- restart_service: systemctl restart <allowed unit>
-- restart_container: docker restart <allowed container>
-- safe_disk_cleanup: journald vacuum + docker builder prune + old /tmp cleanup
-- snapshot: collect CPU/memory/disk/OOM evidence
-
-It never deletes business data, never kills unknown processes, never reboots.
-"""
 from __future__ import annotations
 
 import json
+import os
+import platform
 import shutil
+import socket
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
+
+VERSION = "0.2.0"
+CONTROL_URL = os.environ.get("MRA_CONTROL_URL", "https://agent.misk.cc").rstrip("/")
+TOKEN = os.environ.get("MRA_TOKEN", "")
+NODE_ID = os.environ.get("MRA_NODE_ID") or socket.gethostname()
+INTERVAL = int(os.environ.get("MRA_INTERVAL", "60"))
 
 ALLOWED_SERVICES = {
     "komari-agent.service",
@@ -146,69 +140,169 @@ def safe_disk_cleanup() -> dict:
     return {"before_pct": round(before_p, 1), "after_pct": round(after_p, 1), "freed_gb": round(freed_gb, 2), "actions": actions}
 
 
+def action_local(req: dict) -> dict:
+    action = req.get("action")
+    target = req.get("target")
+    if action == "snapshot":
+        return {"ok": True, "result": snapshot()}
+    if action == "safe_disk_cleanup":
+        return {"ok": True, "result": safe_disk_cleanup()}
+    if action == "restart_service":
+        if target not in ALLOWED_SERVICES:
+            return {"ok": False, "error": f"service not allowed: {target}"}
+        code, out = run(["systemctl", "restart", target], timeout=90)
+        code2, out2 = run(["systemctl", "is-active", target], timeout=20)
+        return {"ok": code == 0 and out2.strip() == "active", "exit": code, "output": out[-600:], "status": out2.strip()}
+    if action == "restart_container":
+        if target not in ALLOWED_CONTAINERS:
+            return {"ok": False, "error": f"container not allowed: {target}"}
+        code, out = run(["docker", "restart", target], timeout=120)
+        return {"ok": code == 0, "exit": code, "output": out[-600:]}
+    return {"ok": False, "error": f"unknown action: {action}"}
+
+
+def request(method: str, path: str, data: dict | None = None, timeout: int = 20) -> dict:
+    body = None if data is None else json.dumps(data, ensure_ascii=False).encode()
+    headers = {"User-Agent": f"misk-remote-agent/{VERSION}", "Authorization": f"Bearer {TOKEN}"}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(CONTROL_URL + path, data=body, headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8", "replace"))
+
+
+def identity(snapshot_data: dict | None = None) -> dict:
+    return {
+        "node_id": NODE_ID,
+        "hostname": socket.gethostname(),
+        "version": VERSION,
+        "os": platform.platform(),
+        "snapshot": snapshot_data or {},
+    }
+
+
+def register() -> None:
+    request("POST", "/api/register", identity(snapshot()))
+
+
+def heartbeat() -> None:
+    request("POST", "/api/heartbeat", identity(snapshot()))
+
+
+def poll_once() -> None:
+    cmd = request("GET", f"/api/commands/{NODE_ID}").get("command")
+    if not cmd:
+        return
+    result = action_local(cmd)
+    request("POST", f"/api/commands/{cmd['id']}/result", {"node_id": NODE_ID, "result": result})
+
+
+def daemon() -> int:
+    if not TOKEN:
+        print("missing MRA_TOKEN", file=sys.stderr)
+        return 2
+    while True:
+        try:
+            heartbeat()
+            poll_once()
+        except Exception as e:
+            print(f"agent loop error: {e.__class__.__name__}: {e}", file=sys.stderr)
+        time.sleep(INTERVAL)
+
+
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "daemon":
+        return daemon()
+    if len(sys.argv) > 1 and sys.argv[1] == "register":
+        register(); print("registered"); return 0
+    if len(sys.argv) > 1 and sys.argv[1] == "heartbeat":
+        heartbeat(); print("heartbeat-ok"); return 0
     try:
         req = json.load(sys.stdin)
     except Exception as e:
         print(json.dumps({"ok": False, "error": f"bad json: {e}"}, ensure_ascii=False))
         return 2
-    action = req.get("action")
-    target = req.get("target")
-    if action == "snapshot":
-        print(json.dumps({"ok": True, "result": snapshot()}, ensure_ascii=False))
-        return 0
-    if action == "safe_disk_cleanup":
-        print(json.dumps({"ok": True, "result": safe_disk_cleanup()}, ensure_ascii=False))
-        return 0
-    if action == "restart_service":
-        if target not in ALLOWED_SERVICES:
-            print(json.dumps({"ok": False, "error": f"service not allowed: {target}"}, ensure_ascii=False))
-            return 3
-        code, out = run(["systemctl", "restart", target], timeout=90)
-        code2, out2 = run(["systemctl", "is-active", target], timeout=20)
-        print(json.dumps({"ok": code == 0 and out2.strip() == "active", "exit": code, "output": out[-600:], "status": out2.strip()}, ensure_ascii=False))
-        return 0
-    if action == "restart_container":
-        if target not in ALLOWED_CONTAINERS:
-            print(json.dumps({"ok": False, "error": f"container not allowed: {target}"}, ensure_ascii=False))
-            return 3
-        code, out = run(["docker", "restart", target], timeout=120)
-        print(json.dumps({"ok": code == 0, "exit": code, "output": out[-600:]}, ensure_ascii=False))
-        return 0
-    print(json.dumps({"ok": False, "error": f"unknown action: {action}"}, ensure_ascii=False))
-    return 2
-
+    print(json.dumps(action_local(req), ensure_ascii=False))
+    return 0
 
 if __name__ == "__main__":
     raise SystemExit(main())
 PY
   chmod 700 "$TARGET"
   python3 -m py_compile "$TARGET"
-  echo "✓ 已安装远程 agent: $TARGET"
-  echo "测试: printf '{\"action\":\"snapshot\"}' | $TARGET"
+}
+
+write_env() {
+  local token="${MRA_TOKEN:-}"
+  local node_id="${MRA_NODE_ID:-$(hostname)}"
+  if [[ -z "$token" && -f "$ENV_FILE" ]]; then
+    token="$(grep -E '^MRA_TOKEN=' "$ENV_FILE" 2>/dev/null | sed 's/^MRA_TOKEN=//' | tr -d '"' || true)"
+  fi
+  if [[ -z "$token" ]]; then
+    echo "缺少 MRA_TOKEN。请用：MRA_TOKEN=xxx misk-remote-agent install" >&2
+    exit 2
+  fi
+  umask 077
+  cat > "$ENV_FILE" <<EOF
+MRA_CONTROL_URL=$CONTROL_URL
+MRA_TOKEN=$token
+MRA_NODE_ID=$node_id
+MRA_INTERVAL=${MRA_INTERVAL:-60}
+EOF
+}
+
+write_service() {
+  cat > /etc/systemd/system/$SERVICE <<EOF
+[Unit]
+Description=Misk Remote Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=$ENV_FILE
+ExecStart=$TARGET daemon
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable --now "$SERVICE"
+}
+
+install_agent() {
+  need_root "$@"
+  ensure_python3
+  write_agent
+  write_env
+  "$TARGET" register
+  write_service
+  echo "✓ 已上线: $(hostname) -> $CONTROL_URL"
+  echo "✓ agent: $TARGET"
+  echo "✓ service: $SERVICE"
 }
 
 uninstall_agent() {
   need_root "$@"
-  rm -f "$TARGET"
-  echo "✓ 已卸载: $TARGET"
+  systemctl disable --now "$SERVICE" 2>/dev/null || true
+  rm -f "/etc/systemd/system/$SERVICE" "$TARGET" "$ENV_FILE"
+  systemctl daemon-reload 2>/dev/null || true
+  echo "✓ 已卸载"
 }
 
 status_agent() {
-  echo "misk-remote-agent"
+  echo "misk-remote-agent $VERSION"
+  echo "控制端: $CONTROL_URL"
   echo "目标: $TARGET"
-  if [[ -x "$TARGET" ]]; then
-    echo "状态: installed"
-    if ! has_cmd python3; then
-      echo "依赖: missing python3"
-      echo "修复: sudo misk-remote-agent install"
-      return 1
-    fi
-    python3 -m py_compile "$TARGET" && echo "语法: ok" || echo "语法: failed"
-    printf '{"action":"snapshot"}' | "$TARGET" | python3 -c 'import sys,json; d=json.load(sys.stdin); print("snapshot:", "ok" if d.get("ok") else d)' 2>/dev/null || true
-  else
-    echo "状态: not installed"
-  fi
+  [[ -x "$TARGET" ]] && echo "状态: installed" || { echo "状态: not installed"; return 1; }
+  if ! has_cmd python3; then echo "依赖: missing python3"; return 1; fi
+  python3 -m py_compile "$TARGET" && echo "语法: ok" || echo "语法: failed"
+  if has_cmd systemctl; then systemctl is-active "$SERVICE" 2>/dev/null | sed 's/^/服务: /' || true; fi
+  if [[ -f "$ENV_FILE" ]]; then "$TARGET" heartbeat || true; fi
+  printf '{"action":"snapshot"}' | "$TARGET" | python3 -c 'import sys,json; d=json.load(sys.stdin); print("snapshot:", "ok" if d.get("ok") else d)' 2>/dev/null || true
 }
 
 show_help() {
@@ -216,18 +310,18 @@ show_help() {
 用法: misk-remote-agent <命令>
 
 命令:
-  install      安装远程安全运维 agent 到 $TARGET，会自动补 python3
-  status       查看安装状态并做 snapshot 自检
+  install      安装并注册到主控，自动补 python3，并创建 systemd 常驻服务
+  status       查看安装/在线状态并做 snapshot 自检
   uninstall    卸载 agent
   help         显示帮助
 
-一键安装示例:
-  bash <(curl -fsSL https://sh.misk.cc/install.sh) misk-remote-agent
-  sudo misk-remote-agent install
+一行上线:
+  MRA_TOKEN=xxx bash <(curl -fsSL https://sh.misk.cc/install.sh) misk-remote-agent install
 
-主控调用示例:
-  printf '{"action":"snapshot"}' | ssh root@host $TARGET
-  printf '{"action":"restart_service","target":"komari-agent.service"}' | ssh root@host $TARGET
+可选变量:
+  MRA_CONTROL_URL=$CONTROL_URL
+  MRA_NODE_ID=$(hostname)
+  MRA_INTERVAL=60
 
 安全边界:
   - 只执行白名单服务/容器
