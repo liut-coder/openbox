@@ -72,6 +72,7 @@ category_title() {
         tools)  echo "开发工具 / 切换器" ;;
         bench)  echo "服务器测试" ;;
         system) echo "系统管理" ;;
+        monitor) echo "监控预警" ;;
         agent)  echo "助手常用脚本" ;;
         *)      echo "$1" ;;
     esac
@@ -166,7 +167,7 @@ while true; do
         2|tools)         show_category_menu tools ;;
         3|bench)         show_category_menu bench ;;
         4|system)        show_category_menu system ;;
-        5|monitor)       echo "monitor 分类暂未上线，请期待后续更新。" ;;
+        5|monitor)       show_category_menu monitor ;;
         6|security)      echo "security 分类暂未上线，请期待后续更新。" ;;
         7|bootstrap)     echo "bootstrap 分类暂未上线，请期待后续更新。" ;;
         8|backup)        echo "backup 分类暂未上线，请期待后续更新。" ;;

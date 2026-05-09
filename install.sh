@@ -37,6 +37,8 @@ SCRIPTS=(
   "swap-manager|system|Swap 管理|system/swap-manager.sh|swap-manager|swap"
   "zram-manager|system|ZRAM 状态查看|system/zram-manager.sh|zram-manager|zram"
   "disk-usage|system|目录占用快速查看|system/disk-usage.sh|disk-usage|dux"
+  # monitor
+  "misk-remote-agent|monitor|Misk 远程安全运维 agent|monitor/misk-remote-agent.sh|misk-remote-agent|mra"
   # agent
   "agent-status|agent|常用状态面板|agent/agent-status.sh|agent-status|ast"
   "agent-restart|agent|常用服务重启入口|agent/agent-restart.sh|agent-restart|ars"
