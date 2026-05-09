@@ -14,6 +14,13 @@ bash <(curl -fsSL https://sh.misk.cc)
 bash <(curl -fsSL https://sh.misk.cc) --list
 ```
 
+HMN 主控短入口：
+
+```bash
+bash <(curl -fsSL https://sh.misk.cc) hmn-install
+hmn wake
+```
+
 ## 分类
 
 交互菜单里选择分类后，会先进入二级菜单，

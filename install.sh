@@ -43,6 +43,7 @@ SCRIPTS=(
   "agent-status|agent|常用状态面板|agent/agent-status.sh|agent-status|ast"
   "agent-restart|agent|常用服务重启入口|agent/agent-restart.sh|agent-restart|ars"
   "agent-sync|agent|常用刷新同步入口|agent/agent-sync.sh|agent-sync|asg"
+  "hmn-install|agent|HMN 主控一键安装/更新|agent/hmn-install.sh|hmn-install|hmnup"
 )
 # ──────────────────────────────────────────────────────────────────
 
