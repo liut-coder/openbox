@@ -76,7 +76,9 @@ from datetime import datetime, timezone
 
 VERSION = "0.2.0"
 CONTROL_URL = os.environ.get("MRA_CONTROL_URL", "https://agent.misk.cc").rstrip("/")
+ENV_PATH = os.environ.get("MRA_ENV_FILE", "/etc/misk-remote-agent.env")
 TOKEN = os.environ.get("MRA_TOKEN", "")
+REGISTER_TOKEN = os.environ.get("MRA_REGISTER_TOKEN", "")
 NODE_ID = os.environ.get("MRA_NODE_ID") or socket.gethostname()
 INTERVAL = int(os.environ.get("MRA_INTERVAL", "60"))
 
@@ -161,14 +163,42 @@ def action_local(req: dict) -> dict:
     return {"ok": False, "error": f"unknown action: {action}"}
 
 
-def request(method: str, path: str, data: dict | None = None, timeout: int = 20) -> dict:
+def request(method: str, path: str, data: dict | None = None, timeout: int = 20, auth_token: str | None = None) -> dict:
+    tok = auth_token or TOKEN
     body = None if data is None else json.dumps(data, ensure_ascii=False).encode()
-    headers = {"User-Agent": f"misk-remote-agent/{VERSION}", "Authorization": f"Bearer {TOKEN}"}
+    headers = {"User-Agent": f"misk-remote-agent/{VERSION}", "Authorization": f"Bearer {tok}"}
     if body is not None:
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(CONTROL_URL + path, data=body, headers=headers, method=method)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8", "replace"))
+
+
+def update_env(key: str, value: str) -> None:
+    """Replace or add a key=value line in the env file."""
+    try:
+        lines = []
+        with open(ENV_PATH) as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        lines = []
+    found = False
+    new_lines = []
+    for line in lines:
+        if line.startswith(f"{key}="):
+            new_lines.append(f"{key}={value}")
+            found = True
+        else:
+            new_lines.append(line)
+    if not found:
+        new_lines.append(f"{key}={value}")
+    with open(ENV_PATH, "w") as f:
+        f.write("\n".join(new_lines) + "\n")
+    # Also update in-process env so daemon picks it up
+    os.environ[key] = value
+    if key == "MRA_TOKEN":
+        global TOKEN
+        TOKEN = value
 
 
 def identity(snapshot_data: dict | None = None) -> dict:
@@ -182,7 +212,19 @@ def identity(snapshot_data: dict | None = None) -> dict:
 
 
 def register() -> None:
-    request("POST", "/api/register", identity(snapshot()))
+    """Register with the master using REGISTER_TOKEN, then save returned per-agent token."""
+    if not REGISTER_TOKEN:
+        print("missing MRA_REGISTER_TOKEN", file=sys.stderr)
+        return
+    resp = request("POST", "/api/register", identity(snapshot()), auth_token=REGISTER_TOKEN)
+    agent_tok = resp.get("agent_token")
+    if agent_tok:
+        update_env("MRA_TOKEN", agent_tok)
+        # Remove register token from env file so it's not kept around
+        update_env("MRA_REGISTER_TOKEN", "")
+        print(f"registered agent_token={agent_tok[:8]}...")
+    else:
+        print("register: no agent_token in response", file=sys.stderr)
 
 
 def heartbeat() -> None:
@@ -198,9 +240,17 @@ def poll_once() -> None:
 
 
 def daemon() -> int:
-    if not TOKEN:
-        print("missing MRA_TOKEN", file=sys.stderr)
+    tok = TOKEN or REGISTER_TOKEN
+    if not tok:
+        print("missing MRA_TOKEN or MRA_REGISTER_TOKEN", file=sys.stderr)
         return 2
+    # If we only have a register token, register first to get per-agent token
+    if REGISTER_TOKEN and not TOKEN:
+        try:
+            register()
+        except Exception as e:
+            print(f"auto-register failed: {e.__class__.__name__}: {e}", file=sys.stderr)
+            time.sleep(30)
     while True:
         try:
             heartbeat()
@@ -236,7 +286,8 @@ write_env() {
   local token="${MRA_TOKEN:-}"
   local node_id="${MRA_NODE_ID:-$(hostname)}"
   if [[ -z "$token" && -f "$ENV_FILE" ]]; then
-    token="$(grep -E '^MRA_TOKEN=' "$ENV_FILE" 2>/dev/null | sed 's/^MRA_TOKEN=//' | tr -d '"' || true)"
+    token="$(grep -E '^MRA_REGISTER_TOKEN=' "$ENV_FILE" 2>/dev/null | sed 's/^MRA_REGISTER_TOKEN=//' | tr -d '"' || true)"
+    [[ -z "$token" ]] && token="$(grep -E '^MRA_TOKEN=' "$ENV_FILE" 2>/dev/null | sed 's/^MRA_TOKEN=//' | tr -d '"' || true)"
   fi
   if [[ -z "$token" ]]; then
     echo "缺少 MRA_TOKEN。请用：MRA_TOKEN=xxx misk-remote-agent install" >&2
@@ -245,9 +296,10 @@ write_env() {
   umask 077
   cat > "$ENV_FILE" <<EOF
 MRA_CONTROL_URL=$CONTROL_URL
-MRA_TOKEN=$token
+MRA_REGISTER_TOKEN=$token
 MRA_NODE_ID=$node_id
 MRA_INTERVAL=${MRA_INTERVAL:-60}
+MRA_ENV_FILE=$ENV_FILE
 EOF
 }
 
@@ -278,7 +330,8 @@ install_agent() {
   ensure_python3
   write_agent
   write_env
-  "$TARGET" register
+  # Pass register token and env file path to the Python agent for registration
+  MRA_REGISTER_TOKEN="${MRA_TOKEN:-}" MRA_ENV_FILE="$ENV_FILE" "$TARGET" register
   write_service
   echo "✓ 已上线: $(hostname) -> $CONTROL_URL"
   echo "✓ agent: $TARGET"
